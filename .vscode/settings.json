@@ -1,0 +1,7 @@
+{
+    "files.trimTrailingWhitespace": true,
+    "editor.renderWhitespace": "all",
+    "editor.detectIndentation": true,
+    "terminal.integrated.defaultProfile.windows": "Git Bash",
+    "terminal.integrated.scrollback": 10000,
+}

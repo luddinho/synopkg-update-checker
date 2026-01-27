@@ -1,4 +1,4 @@
-# synology-update-check
+# synopkg-update-checker
 Check for Synology DSM and package updates from the Synology archive server
 
 **[🇩🇪 Deutsche Version](README.de.md)**
@@ -10,7 +10,7 @@ Check for Synology DSM and package updates from the Synology archive server
 
 ## Usage
 ```bash
-Usage: ./synology-update-check.sh [options]
+Usage: ./synopkg-update-checker.sh [options]
 Options:
   -n, --dry-run       Perform a dry run without downloading or installing updates
   -h, --help          Display this help message
@@ -80,7 +80,7 @@ Operating system updates e.g. for DSM will only reported because the command ```
 
 ### Check for updates (dry-run mode)
 ```bash
-./bin/synology-update-check.sh --dry-run
+./bin/synopkg-update-checker.sh --dry-run
 ```
 This will:
 - Display system information
@@ -89,7 +89,7 @@ This will:
 
 ### Check and install updates
 ```bash
-sudo ./bin/synology-update-check.sh
+sudo ./bin/synopkg-update-checker.sh
 ```
 This will:
 - Display system information
@@ -102,7 +102,7 @@ This will:
 
 ### No updates available
 ```
-./bin/synology-update-check.sh
+./bin/synopkg-update-checker.sh
 
 System Information
 =============================================
@@ -135,7 +135,7 @@ No packages to update. Exiting.
 
 ### Two updates available
 ```
-./bin/synology-update-check.sh
+./bin/synopkg-update-checker.sh
 
 System Information
 =============================================

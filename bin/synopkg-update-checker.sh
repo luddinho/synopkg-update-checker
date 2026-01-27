@@ -53,6 +53,11 @@ while true; do
     esac
 done
 
+# Print simulation mode message if dry-run is enabled
+if [ "$DRY_RUN" = true ]; then
+    printf "\n[SIMULATION MODE] Running in dry-run mode. No changes will be made.\n\n"
+fi
+
 #-----------------------------------------------------------------------------
 # DIRECTORY SETUP
 # Create download directories for OS updates (.pat) and packages (.spk)
@@ -339,27 +344,26 @@ printf "==========================\n"
 
 while [ ${#download_apps[@]} -gt 0 ]; do
     printf "\n"
-    PS3="Select the operation: "
+    PS3="Select the operation (or 'q' to quit): "
     COLUMNS=1
 
-    select opt in "${download_apps[@]}" all quit; do
-
+    select opt in "${download_apps[@]}" all; do
+        # Allow 'q' as a quit shortcut
+        if [[ "$REPLY" == "q" || "$REPLY" == "Q" ]]; then
+            break 2
+        fi
+        # Handle user selection
         case $opt in
-            quit)
-                break 2
-                ;;
             all)
                 printf "You selected to update all packages.\n"
-
-                for index in "${!download_apps[@]}"; do
-                    selected_file="${downlaod_files[$index]}"
-                    if [[ -f "$selected_file" || "$DRY_RUN" = true ]]; then
-                        printf "\n"
-                        printf "Package to update: %s\n" "${download_apps[$index]}"
-
-                        # Ask user to confirm installation
-                        read -p "Are you sure you want to update this package? (y/n): " confirm
-                        if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+                # Ask user to confirm installation for all packages once
+                read -p "Are you sure you want to update ALL packages? (y/n): " confirm_all
+                if [[ "$confirm_all" == "y" || "$confirm_all" == "Y" ]]; then
+                    for index in "${!download_apps[@]}"; do
+                        selected_file="${downlaod_files[$index]}"
+                        if [[ -f "$selected_file" || "$DRY_RUN" = true ]]; then
+                            printf "\n"
+                            printf "Package to update: %s\n" "${download_apps[$index]}"
                             if [ "$DRY_RUN" = true ]; then
                                 printf "Dry run mode: Skipping installation of %s\n" $(basename "$selected_file")
                             else
@@ -371,17 +375,16 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                 fi
                             fi
                         else
-                            printf "Installation cancelled by user.\n"
-                            printf "Go ahead with next available package.\n"
+                            printf "Error: File %s does not exist.\n" "$selected_file"
                         fi
-                    else
-                        printf "Error: File %s does not exist.\n" "$selected_file"
-                    fi
-                done
-                printf "\n"
-                printf "================================\n"
-                echo "All packages processed. Exiting."
-                break 2
+                    done
+                    printf "\n"
+                    printf "================================\n"
+                    echo "All packages processed. Exiting."
+                    break 2
+                else
+                    printf "Installation of all packages cancelled by user.\n"
+                fi
                 ;;
             *)
                 if [[ "$REPLY" -ge 1 && "$REPLY" -le ${#download_apps[@]} ]]; then
@@ -423,7 +426,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                         printf "Error: File %s does not exist.\n" "$selected_file"
                     fi
                 else
-                    echo "Invalid option $REPLY"
+                    printf "%s\n" "==> Wrong input, please retry..."
                 fi
                 break
                 ;;

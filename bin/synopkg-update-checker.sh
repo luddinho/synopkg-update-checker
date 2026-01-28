@@ -213,65 +213,64 @@ declare -a downlaod_files=()
 
 # Iterate through all installed packages and check for updates
 for app in $(synopkg list --name | sort); do
+    # Identify currently installed revision
     installed_revision=$(synopkg version $app)
-    latest_revision=$(synopkg checkupdate $app)
-    if [ "$latest_revision" == "" ]; then
-        # If no update via synopkg, check archive for potential newer versions
-        archive_url="https://archive.synology.com/download/Package/$app"
-        archive_html=$(curl -s "$archive_url")
-        if [ $? -eq 0 ] && echo "$archive_html" | grep -q "href=\"/download/Package/$app/"; then
-            # Extract all version folders, sort numerically descending (latest first)
-            all_versions=$(echo "$archive_html" | grep -o 'href="/download/Package/'$app'/[^"]*"' | sed 's|href="/download/Package/'$app'/||;s|"||' | sort -V -r)
-            found=""
-            for version in $all_versions; do
-                # Check if version is newer than current installed_revision
-                if [[ "$version" != "$installed_revision" ]] && [[ $(printf '%s\n%s' "$installed_revision" "$version" | sort -V | head -1) == "$installed_revision" ]]; then
-                    # Check if there's an SPK for the current architecture and OS
-                    version_url="https://archive.synology.com/download/Package/$app/$version"
-                    version_html=$(curl -s "$version_url")
-                    if [ "$os_name" = "BSM" ]; then
-                        if echo "$version_html" | grep -q "BSM.*$arch.*\.spk"; then
-                            latest_revision="$version"
-                            # grep the name of the spk file
-                            spk=$(echo "$version_html" | grep -o "[^/]*BSM[^/]*$arch[^\"']*\.spk" | head -1 | sed 's/.*">//;s/".*$//')
-                            url=$(echo "$version_html" | grep -o "href=\"[^\"']*/download/Package/spk/[^\"']*BSM[^\"']*$arch[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
-                            download_apps+=("$app")
-                            downlaod_revisions+=("$latest_revision")
-                            download_links+=("$url")
-                            update_avail="X"
-                            found="yes"
-                            break
-                        fi
-                    else
-                        if echo "$version_html" | grep -q "$arch.*\.spk" && ! echo "$version_html" | grep -q "BSM"; then
-                            latest_revision="$version"
-                            # grep the name of the spk file
-                            spk=$(echo "$version_html" | grep -o "[^/]*$arch[^\"']*\.spk" | head -1 | sed 's/.*">//;s/".*$//')
-                            url=$(echo "$version_html" | grep -o "href=\"[^\"']*/download/Package/spk/[^\"']*$arch[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
-                            download_apps+=("$app")
-                            downlaod_revisions+=("$latest_revision")
-                            download_links+=("$url")
-                            update_avail="X"
-                            found="yes"
-                            break
-                        fi
+
+    # Check Synology archive server for available updates
+    archive_url="https://archive.synology.com/download/Package/$app"
+    archive_html=$(curl -s "$archive_url")
+    if [ $? -eq 0 ] && echo "$archive_html" | grep -q "href=\"/download/Package/$app/"; then
+        # Extract all version folders, sort numerically descending (latest first)
+        all_versions=$(echo "$archive_html" | grep -o 'href="/download/Package/'$app'/[^"]*"' | sed 's|href="/download/Package/'$app'/||;s|"||' | sort -V -r)
+        found=""
+        for version in $all_versions; do
+            # Check if version is newer than current installed_revision
+            if [[ "$version" != "$installed_revision" ]] && [[ $(printf '%s\n%s' "$installed_revision" "$version" | sort -V | head -1) == "$installed_revision" ]]; then
+                # Check if there's an SPK for the current architecture and OS
+                version_url="https://archive.synology.com/download/Package/$app/$version"
+                version_html=$(curl -s "$version_url")
+                if [ "$os_name" = "BSM" ]; then
+                    if echo "$version_html" | grep -q "BSM.*$arch.*\.spk"; then
+                        latest_revision="$version"
+                        # grep the name of the spk file
+                        spk=$(echo "$version_html" | grep -o "[^/]*BSM[^/]*$arch[^\"']*\.spk" | head -1 | sed 's/.*">//;s/".*$//')
+                        url=$(echo "$version_html" | grep -o "href=\"[^\"']*/download/Package/spk/[^\"']*BSM[^\"']*$arch[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
+                        download_apps+=("$app")
+                        downlaod_revisions+=("$latest_revision")
+                        download_links+=("$url")
+                        update_avail="X"
+                        found="yes"
+                        break
+                    fi
+                else
+                    if echo "$version_html" | grep -q "$arch.*\.spk" && ! echo "$version_html" | grep -q "BSM"; then
+                        latest_revision="$version"
+                        # grep the name of the spk file
+                        spk=$(echo "$version_html" | grep -o "[^/]*$arch[^\"']*\.spk" | head -1 | sed 's/.*">//;s/".*$//')
+                        url=$(echo "$version_html" | grep -o "href=\"[^\"']*/download/Package/spk/[^\"']*$arch[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
+                        download_apps+=("$app")
+                        downlaod_revisions+=("$latest_revision")
+                        download_links+=("$url")
+                        update_avail="X"
+                        found="yes"
+                        break
                     fi
                 fi
-            done
-            if [ -z "$found" ]; then
-                spk=""
-                download_link=""
-                update_avail="-"
-                latest_revision="$installed_revision"
             fi
-        else
+        done
+        if [ -z "$found" ]; then
             spk=""
             download_link=""
             update_avail="-"
             latest_revision="$installed_revision"
         fi
+    else
+        spk=""
+        download_link=""
+        update_avail="-"
+        latest_revision="$installed_revision"
     fi
-    printf "%-30s | %-15s | %-15s | %-10s | %-20s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail" "$spk"
+       printf "%-30s | %-15s | %-15s | %-10s | %-20s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail" "$spk"
 done
 
 # Print download links if any updates are available

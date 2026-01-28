@@ -367,10 +367,24 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                 printf "Dry run mode: Skipping installation of %s\n" $(basename "$selected_file")
                             else
                                 printf "Installing package from file: %s\n" "$selected_file"
-                                synopkg install "$selected_file"
-                                if [ $? -ne 0 ]; then
-                                    printf "\n"
-                                    printf "Error installing package %s\n" "${download_apps[$index]}"
+                                output=$(synopkg install "$selected_file" 2>/dev/null)
+                                error_code=$(echo "$output" | jq -r '.error.code')
+                                success=$(echo "$output" | jq -r '.success')
+                                if [ "$success" = "true" ] && [ "$error_code" = "0" ]; then
+                                    echo "Installation successful (error code: $error_code)"
+                                    # Start the application after successful installation
+                                    app_name="${download_apps[$index]}"
+                                    printf "Starting application: %s\n" "$app_name"
+                                    start_output=$(synopkg start "$app_name" 2>/dev/null)
+                                    start_error_code=$(echo "$start_output" | jq -r '.error.code')
+                                    start_success=$(echo "$start_output" | jq -r '.success')
+                                    if [ "$start_success" = "true" ] && [ "$start_error_code" = "0" ]; then
+                                        echo "Start successful (error code: $start_error_code)"
+                                    else
+                                        echo "Start failed (error code: $start_error_code)"
+                                    fi
+                                else
+                                    echo "Installation failed (error code: $error_code)"
                                 fi
                             fi
                         else
@@ -399,12 +413,24 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                 printf "Dry run mode: Skipping installation of %s\n" $(basename "$selected_file")
                             else
                                 printf "Installing package from file: %s\n" "$selected_file"
-                                synopkg install "$selected_file"
-                                if [ $? -ne 0 ]; then
-                                    printf "Error installing package %s\n" "${download_apps[$index]}"
+                                output=$(synopkg install "$selected_file" 2>/dev/null)
+                                error_code=$(echo "$output" | jq -r '.error.code')
+                                success=$(echo "$output" | jq -r '.success')
+                                if [ "$success" = "true" ] && [ "$error_code" = "0" ]; then
+                                    echo "Installation successful (error code: $error_code)"
+                                    # Start the application after successful installation
+                                    app_name="${download_apps[$index]}"
+                                    printf "Starting application: %s\n" "$app_name"
+                                    start_output=$(synopkg start "$app_name" 2>/dev/null)
+                                    start_error_code=$(echo "$start_output" | jq -r '.error.code')
+                                    start_success=$(echo "$start_output" | jq -r '.success')
+                                    if [ "$start_success" = "true" ] && [ "$start_error_code" = "0" ]; then
+                                        echo "Start successful (error code: $start_error_code)"
+                                    else
+                                        echo "Start failed (error code: $start_error_code)"
+                                    fi
                                 else
-                                    printf "\n\n"
-                                    printf "Selection installed. You can select another package to install.\n"
+                                    echo "Installation failed (error code: $error_code)"
                                 fi
                             fi
 

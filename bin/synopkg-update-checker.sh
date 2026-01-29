@@ -11,20 +11,27 @@
 # Parse optional arguments for dry-run mode and help display
 #-----------------------------------------------------------------------------
 DRY_RUN=false
+INFO_MODE=false
 usage() {
     cat <<EOF
-    "Usage: $filename [options]"
+    Usage: $filename [options]
 
-    "Options:"
-    "  -n, --dry-run       Perform a dry run without downloading or installing updates"
-    "  -h, --help          Display this help message"
+    Options:
+        -i, --info          Display system and update information only,
+                            like dry-run but without download messages and interactive installation
+        -n, --dry-run       Perform a dry run without downloading or installing updates
+        -v, --verbose       Enable verbose output (not implemented)
+        -d, --debug         Enable debug mode
+        --                  End of options
+
+      -h, --help          Display this help message
 
 EOF
 }
 
 # Parse the command line arguments using getopt
 filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o nh --long dry-run,help -- "$@")
+PARSED_OPTIONS=$(getopt -n "$filename" -o invdh --long info,dry-run,verbose,debug,help -- "$@")
 retcode=$?
 if [ $retcode != 0 ]; then
     usage
@@ -36,8 +43,17 @@ eval set -- "$PARSED_OPTIONS"
 while true; do
     case "$1" in
         # optional arguments
+        -i|--info)
+            INFO_MODE=true; shift ;;
+
         -n|--dry-run)
             DRY_RUN=true; shift ;;
+
+        -v|--verbose)
+            VERBOSE=true; shift ;;
+
+        -d|--debug)
+            DEBUG=true; shift ;;
 
         -h|--help)
             usage
@@ -56,6 +72,10 @@ done
 # Print simulation mode message if dry-run is enabled
 if [ "$DRY_RUN" = true ]; then
     printf "\n[SIMULATION MODE] Running in dry-run mode. No changes will be made.\n\n"
+fi
+
+if [ "$INFO_MODE" = true ]; then
+    printf "\nDisplaying system and update information only. No downloads or installations will be performed.\n\n"
 fi
 
 #-----------------------------------------------------------------------------
@@ -305,7 +325,9 @@ if [[ ${#download_apps[@]} -gt 0 && ${#download_links[@]} -gt 0 ]]; then
         spk_name=$(basename "$url")
         filePath="$(realpath "$download_dir_pkg/$spk_name")"
         downlaod_files+=("$filePath")
-        if [ "$DRY_RUN" = true ]; then
+        if [ "$INFO_MODE" = true ]; then
+            continue
+        elif [ "$DRY_RUN" = true ]; then
             printf "Dry run mode: Skipping download of %s\n" $(basename "$url")
         else
             printf "\n"
@@ -316,6 +338,17 @@ if [[ ${#download_apps[@]} -gt 0 && ${#download_links[@]} -gt 0 ]]; then
             wget -q --show-progress -O "$filePath" "$url"
         fi
     done
+fi
+
+# Display total count of packages with available updates
+amount=${#download_apps[@]}
+printf "\n"
+printf "Total packages with updates available: %d\n" "$amount"
+
+# Exit if in info mode
+if [ "$INFO_MODE" = true ]; then
+    printf "\nNo installations will be performed. Exiting.\n"
+    exit 0
 fi
 
 #-----------------------------------------------------------------------------
@@ -332,10 +365,6 @@ if [ ${#download_apps[@]} -eq 0 ]; then
     printf "No packages to update. Exiting.\n"
     exit 0
 fi
-# Display total count of packages with available updates
-amount=${#download_apps[@]}
-printf "\n"
-printf "Total packages with updates available: %d\n" "$amount"
 
 printf "\n\n\n"
 printf "Select packages to update:\n"
@@ -366,22 +395,33 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                             if [ "$DRY_RUN" = true ]; then
                                 printf "Dry run mode: Skipping installation of %s\n" $(basename "$selected_file")
                             else
+                                app_name="${download_apps[$index]}"
+                                # Store previous status before installation
+                                prev_status_output=$(synopkg status "$app_name" 2>/dev/null)
+                                prev_pkg_status=$(echo "$prev_status_output" | jq -r '.status')
                                 printf "Installing package from file: %s\n" "$selected_file"
                                 output=$(synopkg install "$selected_file" 2>/dev/null)
                                 error_code=$(echo "$output" | jq -r '.error.code')
                                 success=$(echo "$output" | jq -r '.success')
                                 if [ "$success" = "true" ] && [ "$error_code" = "0" ]; then
                                     echo "Installation successful (error code: $error_code)"
-                                    # Start the application after successful installation
-                                    app_name="${download_apps[$index]}"
-                                    printf "Starting application: %s\n" "$app_name"
-                                    start_output=$(synopkg start "$app_name" 2>/dev/null)
-                                    start_error_code=$(echo "$start_output" | jq -r '.error.code')
-                                    start_success=$(echo "$start_output" | jq -r '.success')
-                                    if [ "$start_success" = "true" ] && [ "$start_error_code" = "0" ]; then
-                                        echo "Start successful (error code: $start_error_code)"
+                                    # Only start the application if it was running before and is not running after
+                                    status_output=$(synopkg status "$app_name" 2>/dev/null)
+                                    pkg_status=$(echo "$status_output" | jq -r '.status')
+                                    [ "$DEBUG" = true ] && echo "[DEBUG] Previous package status: $prev_pkg_status"
+                                    [ "$DEBUG" = true ] && echo "[DEBUG] Current package status: $pkg_status"
+                                    if [ "$prev_pkg_status" = "running" ] && [ "$pkg_status" != "running" ]; then
+                                        printf "Starting application: %s\n" "$app_name"
+                                        start_output=$(synopkg start "$app_name" 2>/dev/null)
+                                        start_error_code=$(echo "$start_output" | jq -r '.error.code')
+                                        start_success=$(echo "$start_output" | jq -r '.success')
+                                        if [ "$start_success" = "true" ] && [ "$start_error_code" = "0" ]; then
+                                            echo "Start successful (error code: $start_error_code)"
+                                        else
+                                            echo "Start failed (error code: $start_error_code)"
+                                        fi
                                     else
-                                        echo "Start failed (error code: $start_error_code)"
+                                        echo "Application was running before and is already running after update. Not starting."
                                     fi
                                 else
                                     echo "Installation failed (error code: $error_code)"
@@ -412,22 +452,33 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                             if [ "$DRY_RUN" = true ]; then
                                 printf "Dry run mode: Skipping installation of %s\n" $(basename "$selected_file")
                             else
+                                app_name="${download_apps[$index]}"
+                                # Store previous status before installation
+                                prev_status_output=$(synopkg status "$app_name" 2>/dev/null)
+                                prev_pkg_status=$(echo "$prev_status_output" | jq -r '.status')
                                 printf "Installing package from file: %s\n" "$selected_file"
                                 output=$(synopkg install "$selected_file" 2>/dev/null)
                                 error_code=$(echo "$output" | jq -r '.error.code')
                                 success=$(echo "$output" | jq -r '.success')
                                 if [ "$success" = "true" ] && [ "$error_code" = "0" ]; then
                                     echo "Installation successful (error code: $error_code)"
-                                    # Start the application after successful installation
-                                    app_name="${download_apps[$index]}"
-                                    printf "Starting application: %s\n" "$app_name"
-                                    start_output=$(synopkg start "$app_name" 2>/dev/null)
-                                    start_error_code=$(echo "$start_output" | jq -r '.error.code')
-                                    start_success=$(echo "$start_output" | jq -r '.success')
-                                    if [ "$start_success" = "true" ] && [ "$start_error_code" = "0" ]; then
-                                        echo "Start successful (error code: $start_error_code)"
+                                    # Only start the application if it was running before and is not running after
+                                    status_output=$(synopkg status "$app_name" 2>/dev/null)
+                                    pkg_status=$(echo "$status_output" | jq -r '.status')
+                                    [ "$DEBUG" = true ] && echo "[DEBUG] Previous package status: $prev_pkg_status"
+                                    [ "$DEBUG" = true ] && echo "[DEBUG] Current package status: $pkg_status"
+                                    if [ "$prev_pkg_status" = "running" ] && [ "$pkg_status" != "running" ]; then
+                                        printf "Starting application: %s\n" "$app_name"
+                                        start_output=$(synopkg start "$app_name" 2>/dev/null)
+                                        start_error_code=$(echo "$start_output" | jq -r '.error.code')
+                                        start_success=$(echo "$start_output" | jq -r '.success')
+                                        if [ "$start_success" = "true" ] && [ "$start_error_code" = "0" ]; then
+                                            echo "Start successful (error code: $start_error_code)"
+                                        else
+                                            echo "Start failed (error code: $start_error_code)"
+                                        fi
                                     else
-                                        echo "Start failed (error code: $start_error_code)"
+                                        echo "Application was running before and is already running after update. Not starting."
                                     fi
                                 else
                                     echo "Installation failed (error code: $error_code)"
@@ -436,7 +487,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
 
                             # Remove the selected item from arrays
                             download_apps=("${download_apps[@]:0:$index}" "${download_apps[@]:$((index+1))}")
-                            downlaod_files=("${downlaod_files[@]:0:$index}" "${downlaod_files[@]:$((index+1))}")
+                            download_files=("${download_files[@]:0:$index}" "${download_files[@]:$((index+1))}")
                             if [ ${#download_apps[@]} -eq 0 ]; then
                                 printf "\n"
                                 printf "================================\n"

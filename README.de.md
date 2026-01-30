@@ -12,12 +12,20 @@ Prüfen auf Synology DSM und Paket-Updates vom Synology Archiv-Server
 ```bash
 Verwendung: ./synopkg-update-checker.sh [Optionen]
 Optionen:
+  -i, --info          Nur System- und Update-Informationen anzeigen,
+                      wie Dry-run aber ohne Download-Meldungen und interaktive Installation
+  -e, --email         E-Mail-Modus - keine Ausgabe auf stdout, nur Bericht per E-Mail senden (erfordert --info)
   -n, --dry-run       Testlauf ohne Herunterladen oder Installieren von Updates
+  -v, --verbose       Ausführliche Ausgabe aktivieren (nicht implementiert)
+  -d, --debug         Debug-Modus aktivieren
   -h, --help          Diese Hilfemeldung anzeigen
 ```
 
 ### Optionen
-1. Dry-run wird verwendet, um nur nach verfügbaren Updates zu suchen und das Upgrade-Verfahren zu simulieren. Es werden keine Dateien heruntergeladen und es besteht keine Möglichkeit, Pakete versehentlich zu installieren.
+1. **Info-Modus** (`-i, --info`): Zeigt System- und Update-Informationen ohne Herunterladen oder Installieren. Perfekt für schnelle Überprüfungen oder automatisierte Überwachung.
+2. **E-Mail-Modus** (`-e, --email`): Sendet Update-Bericht per E-Mail mit anklickbaren Download-Links. Erfordert E-Mail-Konfiguration in DSM (Systemsteuerung > Benachrichtigung > E-Mail). URLs werden verkürzt dargestellt mit OS-/Paketnamen anstelle vollständiger URLs.
+3. **Dry-run-Modus** (`-n, --dry-run`): Prüft auf Updates und simuliert das Upgrade-Verfahren ohne Herunterladen oder Installieren. Interaktives Menü wird weiterhin angezeigt.
+4. **Debug-Modus** (`-d, --debug`): Aktiviert detaillierte Debug-Ausgabe zur Fehlersuche.
 
 ### Einschränkungen
 Betriebssystem-Updates z.B. für DSM werden nur gemeldet, da der Befehl ```sudo synoupgrade --patch /pfad/zur/datei.pat``` nicht funktioniert.
@@ -27,6 +35,7 @@ Betriebssystem-Updates z.B. für DSM werden nur gemeldet, da der Befehl ```sudo 
 - Produkt
 - Modell
 - Architektur
+- Plattformname (CPU-Codename wie avoton, apollolake, usw.)
 - Betriebssystem
 - Version
 
@@ -78,6 +87,30 @@ Betriebssystem-Updates z.B. für DSM werden nur gemeldet, da der Befehl ```sudo 
 
 ## Beispiele
 
+### Nach Updates suchen (Info-Modus)
+```bash
+./bin/synopkg-update-checker.sh --info
+```
+Dies wird:
+- Systeminformationen anzeigen
+- Nach OS- und Paket-Updates suchen
+- Verfügbare Updates anzeigen, ohne etwas herunterzuladen oder zu installieren
+- Nach Anzeige der Informationen beenden (kein interaktives Menü)
+
+### Nach Updates suchen und per E-Mail benachrichtigen
+```bash
+./bin/synopkg-update-checker.sh --email
+```
+Dies wird:
+- Nach OS- und Paket-Updates suchen
+- Einen HTML-formatierten E-Mail-Bericht senden mit:
+  - Systeminformationen
+  - Update-Verfügbarkeitstabellen
+  - Anklickbaren Download-Links (verkürzt mit App-Namen)
+- Erfordert E-Mail-Konfiguration in DSM (siehe [Konfiguration E-Mail Benachrichtigung])
+
+[Konfiguration E-Mail Benachrichtigung]: https://kb.synology.com/de-de/DSM/help/DSM/AdminCenter/system_notification_email?version=7
+
 ### Nach Updates suchen (Dry-run-Modus)
 ```bash
 ./bin/synopkg-update-checker.sh --dry-run
@@ -85,7 +118,8 @@ Betriebssystem-Updates z.B. für DSM werden nur gemeldet, da der Befehl ```sudo 
 Dies wird:
 - Systeminformationen anzeigen
 - Nach OS- und Paket-Updates suchen
-- Verfügbare Updates anzeigen, ohne etwas herunterzuladen oder zu installieren
+- Verfügbare Updates anzeigen
+- Interaktives Menü anzeigen, aber tatsächliche Downloads und Installationen überspringen
 
 ### Updates suchen und installieren
 ```bash
@@ -97,6 +131,15 @@ Dies wird:
 - Verfügbare Updates herunterladen
 - Ein interaktives Menü zur Auswahl der zu installierenden Pakete anzeigen
 - Ausgewählte Pakete nach Bestätigung installieren
+
+### Debug-Modus
+```bash
+./bin/synopkg-update-checker.sh --debug
+```
+Aktiviert detaillierte Debug-Ausgabe mit:
+- Versionsvergleichslogik
+- .pat-Datei-Matching-Prozess
+- URL-Extraktionsdetails
 
 ## Beispielausgabe
 

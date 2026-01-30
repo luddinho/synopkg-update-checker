@@ -12,12 +12,20 @@ Check for Synology DSM and package updates from the Synology archive server
 ```bash
 Usage: ./synopkg-update-checker.sh [options]
 Options:
+  -i, --info          Display system and update information only,
+                      like dry-run but without download messages and interactive installation
+  -e, --email         Email mode - no output to stdout, only send report via email (requires --info)
   -n, --dry-run       Perform a dry run without downloading or installing updates
+  -v, --verbose       Enable verbose output (not implemented)
+  -d, --debug         Enable debug mode
   -h, --help          Display this help message
 ```
 
 ### Options
-1. Dry run is used to check only for available updates and simulate the upgrade procedure. No files will be downloaded and no possibility to install packages by mistake.
+1. **Info mode** (`-i, --info`): Display system and update information without downloading or installing. Perfect for quick checks or automated monitoring.
+2. **Email mode** (`-e, --email`): Send update report via email with clickable download links. Requires email configuration in DSM (Control Panel > Notification > Email). URLs are shortened to display OS/package names instead of full URLs.
+3. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
+4. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting.
 
 ### Restrictions
 Operating system updates e.g. for DSM will only reported because the command ```sudo synoupgrade --patch /path/to/file.pat``` does not work.
@@ -27,6 +35,7 @@ Operating system updates e.g. for DSM will only reported because the command ```
 - Product
 - Model
 - Architecture
+- Platform Name (CPU codename like avoton, apollolake, etc.)
 - Operating System
 - Version
 
@@ -78,6 +87,30 @@ Operating system updates e.g. for DSM will only reported because the command ```
 
 ## Examples
 
+### Check for updates (info mode)
+```bash
+./bin/synopkg-update-checker.sh --info
+```
+This will:
+- Display system information
+- Check for OS and package updates
+- Show available updates without downloading or installing anything
+- Exit after displaying information (no interactive menu)
+
+### Check for updates and notify by email
+```bash
+./bin/synopkg-update-checker.sh --email
+```
+This will:
+- Check for OS and package updates
+- Send an HTML-formatted email report with:
+  - System information
+  - Update availability tables
+  - Clickable download links (shortened to show app names)
+- Requires email configuration in DSM (see [Configure E-Mail notification])
+
+[Configure E-Mail notification]: https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_notification_email?version=7
+
 ### Check for updates (dry-run mode)
 ```bash
 ./bin/synopkg-update-checker.sh --dry-run
@@ -85,7 +118,8 @@ Operating system updates e.g. for DSM will only reported because the command ```
 This will:
 - Display system information
 - Check for OS and package updates
-- Show available updates without downloading or installing anything
+- Show available updates
+- Present interactive menu but skip actual downloads and installations
 
 ### Check and install updates
 ```bash
@@ -97,6 +131,15 @@ This will:
 - Download available updates
 - Present an interactive menu to select packages for installation
 - Install selected packages after confirmation
+
+### Debug mode
+```bash
+./bin/synopkg-update-checker.sh --debug
+```
+Enables detailed debug output showing:
+- Version comparison logic
+- .pat file matching process
+- URL extraction details
 
 ## Output Example
 

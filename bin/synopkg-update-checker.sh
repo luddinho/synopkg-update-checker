@@ -12,6 +12,10 @@
 #-----------------------------------------------------------------------------
 DRY_RUN=false
 INFO_MODE=false
+EMAIL_MODE=false
+VERBOSE=false
+DEBUG=false
+
 usage() {
     cat <<EOF
     Usage: $filename [options]
@@ -19,6 +23,8 @@ usage() {
     Options:
         -i, --info          Display system and update information only,
                             like dry-run but without download messages and interactive installation
+        -e, --email         Email mode - no output to stdout, only capture to variable (requires --info)
+
         -n, --dry-run       Perform a dry run without downloading or installing updates
         -v, --verbose       Enable verbose output (not implemented)
         -d, --debug         Enable debug mode
@@ -31,7 +37,7 @@ EOF
 
 # Parse the command line arguments using getopt
 filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o invdh --long info,dry-run,verbose,debug,help -- "$@")
+PARSED_OPTIONS=$(getopt -n "$filename" -o ienvdh --long info,email,dry-run,verbose,debug,help -- "$@")
 retcode=$?
 if [ $retcode != 0 ]; then
     usage
@@ -46,6 +52,10 @@ while true; do
         -i|--info)
             INFO_MODE=true; shift ;;
 
+        -e|--email)
+            EMAIL_MODE=true;
+            INFO_MODE=true;
+            shift ;;
         -n|--dry-run)
             DRY_RUN=true; shift ;;
 
@@ -69,13 +79,219 @@ while true; do
     esac
 done
 
+#-----------------------------------------------------------------------------
+# CONVERT URLS TO HTML LINKS
+# Convert plain text URLs to HTML anchor tags with application names
+# Used in email mode to create clickable, shortened links
+#-----------------------------------------------------------------------------
+convert_urls_to_html_links() {
+    local text="$1"
+    local result="$text"
+
+    # Convert OS download links: "Download Link: <URL>" -> "Download Link: <a href='URL'>OSName_version_filename.pat</a>"
+    # Extract filename from URL and use it as link text with OS name and latest version, separated by underscores
+    while [[ "$result" =~ (Download\ Link:\ )(https://[^ ]+/([^/]+\.pat)) ]]; do
+        full_match="${BASH_REMATCH[0]}"
+        url="${BASH_REMATCH[2]}"
+        filename="${BASH_REMATCH[3]}"
+        # URL decode the filename (e.g., %2B -> +)
+        decoded_filename=$(echo "$filename" | sed 's/%2B/+/g; s/%20/ /g; s/%2F/\//g')
+        replacement="Download Link: <a href='${url}' style='color: #0066cc; text-decoration: none;'>${os_name}_${os_latest}_${decoded_filename}</a>"
+        result="${result//${full_match}/${replacement}}"
+    done
+
+    # Convert package download links in table format
+    # Match lines with app name, version, and URL, then replace URL with clickable link
+    local processed_result=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^([A-Za-z0-9_-]+)[[:space:]]+\|[[:space:]]+([0-9.-]+)[[:space:]]+\|[[:space:]]+(https://[^[:space:]]+\.spk) ]]; then
+            app_name="${BASH_REMATCH[1]}"
+            version="${BASH_REMATCH[2]}"
+            url="${BASH_REMATCH[3]}"
+            # Replace the URL with a clickable link using app name and version
+            # Construct the replacement string separately to avoid expansion issues
+            link_text="${app_name}_${version}"
+            anchor_tag="<a href='${url}' style='color: #0066cc; text-decoration: none;'>${link_text}</a>"
+            # Use sed for more reliable replacement
+            new_line=$(echo "$line" | sed "s|${url}|${anchor_tag}|")
+            processed_result+="${new_line}"$'\n'
+        else
+            processed_result+="${line}"$'\n'
+        fi
+    done <<< "$result"
+
+    # Remove the trailing newline added by the loop
+    result="${processed_result%$'\n'}"
+
+    echo "$result"
+}
+
+#-----------------------------------------------------------------------------
+# EMAIL FUNCTION
+# Send email using Synology's built-in mail functionality
+# Requires: Synology mail server to be configured in DSM
+#-----------------------------------------------------------------------------
+send_email() {
+    local subject="$1"
+    local body="$2"
+
+    # Parse DSM SMTP configuration
+    local smtp_server=""
+    local smtp_port=""
+    local smtp_use_ssl=""
+    local smtp_auth=""
+    local smtp_user=""
+    local smtp_pass=""
+    local smtp_from_name=""
+    local smtp_from_mail=""
+    local subject_prefix=""
+    local recipient=""
+
+    if [ -f "/usr/syno/etc/synosmtp.conf" ]; then
+        smtp_server=$(grep "^eventsmtp=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        smtp_port=$(grep "^eventport=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        smtp_use_ssl=$(grep "^eventusessl=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        smtp_auth=$(grep "^eventauth=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        smtp_user=$(grep "^eventuser=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        smtp_pass=$(grep "^eventpasscrypted=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        smtp_from_name=$(grep "^smtp_from_name=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        smtp_from_mail=$(grep "^smtp_from_mail=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        subject_prefix=$(grep "^eventsubjectprefix=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        recipient=$(grep "^eventmails=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+    fi
+
+    # Check if required SMTP configuration is available
+    if [ -z "$smtp_server" ] || [ -z "$smtp_port" ] || [ -z "$smtp_user" ] || [ -z "$smtp_pass" ] || [ -z "$recipient" ]; then
+        echo "Error: SMTP server or recipient not configured in DSM."
+        echo "Please configure email notifications in DSM: Control Panel > Notification > Email"
+        return 1
+    fi
+
+    # Build From header with name if available
+    local from_header
+    if [ -n "$smtp_from_name" ]; then
+        from_header="From: $smtp_from_name <$smtp_from_mail>"
+    else
+        from_header="From: $smtp_from_mail"
+    fi
+
+    # Add subject prefix if configured
+    local full_subject="${subject_prefix}${subject}"
+
+    # Convert URLs to HTML links with app names
+    local processed_body=$(convert_urls_to_html_links "$body")
+
+    # Convert plain text body to HTML with monospace font for proper alignment
+    # Strategy: Temporarily replace anchor tags with placeholders, escape HTML, then restore anchors
+    local escaped_body="$processed_body"
+
+    # Step 1: Extract and protect anchor tags by replacing them with unique placeholders
+    local anchor_counter=0
+    declare -A anchor_map
+    while [[ "$escaped_body" =~ \<a\ href=\'([^\']+)\'[^\>]*\>([^\<]+)\</a\> ]]; do
+        full_anchor="${BASH_REMATCH[0]}"
+        href="${BASH_REMATCH[1]}"
+        text="${BASH_REMATCH[2]}"
+        placeholder="__ANCHOR_${anchor_counter}__"
+        anchor_map[$placeholder]="<a href='${href}' style='color: #0066cc; text-decoration: none;'>${text}</a>"
+        escaped_body="${escaped_body//${full_anchor}/${placeholder}}"
+        ((anchor_counter++))
+    done
+
+    # Step 2: Escape HTML entities in the remaining text
+    escaped_body=$(echo "$escaped_body" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+
+    # Step 3: Restore anchor tags
+    for placeholder in "${!anchor_map[@]}"; do
+        escaped_body="${escaped_body//${placeholder}/${anchor_map[$placeholder]}}"
+    done
+
+    local html_body="<!DOCTYPE html>
+<html>
+<head>
+<meta charset=\"UTF-8\">
+</head>
+<body style=\"font-family: 'Courier New', Courier, monospace; font-size: 12px; line-height: 1.4; background-color: #f5f5f5; padding: 20px;\">
+<div style=\"background-color: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);\">
+<pre style=\"font-family: 'Courier New', Courier, monospace; font-size: 12px; white-space: pre; margin: 0;\">$escaped_body</pre>
+</div>
+</body>
+</html>"
+
+    # Check if ssmtp is available
+    if command -v ssmtp &> /dev/null; then
+        # Configure ssmtp on-the-fly using DSM settings
+        local ssmtp_conf="/tmp/ssmtp_$$.conf"
+        cat > "$ssmtp_conf" <<EOF
+root=$smtp_from_mail
+mailhub=$smtp_server:$smtp_port
+hostname=$(hostname)
+FromLineOverride=YES
+EOF
+
+        # Add SSL/TLS settings
+        if [ "$smtp_use_ssl" = "yes" ] || [ "$smtp_use_ssl" = "true" ]; then
+            echo "UseTLS=YES" >> "$ssmtp_conf"
+            echo "UseSTARTTLS=YES" >> "$ssmtp_conf"
+        fi
+
+        # Add authentication settings
+        if [ "$smtp_auth" = "yes" ] || [ "$smtp_auth" = "true" ]; then
+            if [ -n "$smtp_user" ]; then
+                echo "AuthUser=$smtp_user" >> "$ssmtp_conf"
+            fi
+            if [ -n "$smtp_pass" ]; then
+                echo "AuthPass=$smtp_pass" >> "$ssmtp_conf"
+            fi
+        fi
+
+        [ "$DEBUG" = true ] && echo "[DEBUG] Using ssmtp with config: $ssmtp_conf"
+        [ "$DEBUG" = true ] && cat "$ssmtp_conf"
+
+        # Send email using temporary config with HTML body
+        {
+            echo "$from_header"
+            echo "To: $recipient"
+            echo "Subject: $full_subject"
+            echo "MIME-Version: 1.0"
+            echo "Content-Type: text/html; charset=UTF-8"
+            echo ""
+            echo "$html_body"
+        } | ssmtp -C "$ssmtp_conf" "$recipient"
+        local result=$?
+        rm -f "$ssmtp_conf"
+        return $result
+
+    elif command -v sendmail &> /dev/null; then
+        # Fallback to sendmail with HTML
+        {
+            echo "$from_header"
+            echo "To: $recipient"
+            echo "Subject: $full_subject"
+            echo "MIME-Version: 1.0"
+            echo "Content-Type: text/html; charset=UTF-8"
+            echo ""
+            echo "$html_body"
+        } | sendmail -t
+        return $?
+
+    elif command -v synodsmnotify &> /dev/null; then
+        # Use Synology DSM notification system as last resort (plain text only)
+        synodsmnotify @administrators "$full_subject" "$body"
+        return $?
+    else
+        echo "Error: No mail command available (ssmtp, sendmail, or synodsmnotify)."
+        echo "Please configure email notifications in DSM: Control Panel > Notification > Email"
+        return 1
+    fi
+}
+
+# Initialize output capture variable for INFO_MODE
+INFO_OUTPUT=""
+
 # Print simulation mode message if dry-run is enabled
 if [ "$DRY_RUN" = true ]; then
     printf "\n[SIMULATION MODE] Running in dry-run mode. No changes will be made.\n\n"
-fi
-
-if [ "$INFO_MODE" = true ]; then
-    printf "\nDisplaying system and update information only. No downloads or installations will be performed.\n\n"
 fi
 
 #-----------------------------------------------------------------------------
@@ -120,6 +336,7 @@ else
     model=$(dmidecode -s system-product-name)
 fi
 arch=$(uname -m)
+platform_name=$(synogetkeyvalue /etc.defaults/synoinfo.conf platform_name)
 
 os_name=$(synogetkeyvalue /etc.defaults/VERSION os_name)
 major_version=$(synogetkeyvalue /etc.defaults/VERSION majorversion)
@@ -129,20 +346,47 @@ build_number=$(synogetkeyvalue /etc.defaults/VERSION buildnumber)
 smallfix_number=$(synogetkeyvalue /etc.defaults/VERSION smallfixnumber)
 
 if [ $smallfix_number -eq 0 ]; then
-    os_installed_version="${major_version}.${minor_version}.${micro_version}-${build_number}"
+    os_installed_version="${major_version}.${minor_version}.${micro_version}-${build_number}-0"
 else
     os_installed_version="${major_version}.${minor_version}.${micro_version}-${build_number}-${smallfix_number}"
 fi
 
+# And update the display version (separate variable for showing to users)
+if [ $smallfix_number -eq 0 ]; then
+    os_display_version="${major_version}.${minor_version}.${micro_version}-${build_number}"
+else
+    os_display_version="${major_version}.${minor_version}.${micro_version}-${build_number}-${smallfix_number}"
+fi
+
 # Print system information
-printf "\n"
-printf "%s\n" "System Information"
-printf "%s\n" "============================================="
-printf "%-30s | %s\n" "Product" "$product"
-printf "%-30s | %s\n" "Model" "$model"
-printf "%-30s | %s\n" "Architecture" "$arch"
-printf "%-30s | %s\n" "Operating System" "$os_name"
-printf "%-30s | %s\n" "$os_name Version" "$os_installed_version"
+if [ "$INFO_MODE" = true ]; then
+    msg=$(cat <<EOF
+
+System Information
+=============================================
+$(printf "%-30s | %s\n" "Product" "$product")
+$(printf "%-30s | %s\n" "Model" "$model")
+$(printf "%-30s | %s\n" "Architecture" "$arch")
+$(printf "%-30s | %s\n" "Platform Name" "$platform_name")
+$(printf "%-30s | %s\n" "Operating System" "$os_name")
+$(printf "%-30s | %s\n" "Version" "$os_display_version")
+EOF
+)
+    if [ "$EMAIL_MODE" = false ]; then
+        printf "%s\n" "$msg"
+    fi
+    INFO_OUTPUT+="$msg"$'\n'
+else
+    printf "\n"
+    printf "%s\n" "System Information"
+    printf "%s\n" "============================================="
+    printf "%-30s | %s\n" "Product" "$product"
+    printf "%-30s | %s\n" "Model" "$model"
+    printf "%-30s | %s\n" "Architecture" "$arch"
+    printf "%-30s | %s\n" "Platform Name" "$platform_name"
+    printf "%-30s | %s\n" "Operating System" "$os_name"
+    printf "%-30s | %s\n" "Version" "$os_display_version"
+fi
 
 #-----------------------------------------------------------------------------
 # OPERATING SYSTEM UPDATE CHECK
@@ -153,55 +397,158 @@ printf "%-30s | %s\n" "$os_name Version" "$os_installed_version"
 # 4. Display results in table format
 # 5. Provide download link if update is available
 #-----------------------------------------------------------------------------
-printf "\n\n\n"
-printf "%s\n" "Operating System Update Check"
-printf "%s\n" "============================================="
-printf "%s\n"
-# Print header for OS update table
-printf "%-30s | %-15s | %-15s | %-10s | %-20s\n" "Operating System" "Installed" "Latest Version" "Update" "pat"
-printf "%-30s|%-15s|%-15s|%-10s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "------------" "--------------------"
+if [ "$INFO_MODE" = true ]; then
+    msg=$(cat <<EOF
+
+
+
+Operating System Update Check
+=============================================
+
+$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "Operating System" "Installed" "Latest Version" "Update" "pat")
+$(printf "%-30s|%-15s|%-15s|%-6s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "--------" "--------------------")
+EOF
+)
+    if [ "$EMAIL_MODE" = false ]; then
+        printf "%s\n" "$msg"
+    fi
+    INFO_OUTPUT+="$msg"$'\n'
+else
+    printf "\n\n\n"
+    printf "%s\n" "Operating System Update Check"
+    printf "%s\n" "============================================="
+    printf "%s\n"
+    # Print header for OS update table
+    printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "Operating System" "Installed" "Latest Version" "Update" "pat"
+    printf "%-30s|%-15s|%-15s|%-6s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "--------" "--------------------"
+fi
 
 # Fetch the OS archive page and parse for available versions
 os_archive_url="https://archive.synology.com/download/Os/$os_name"
 os_archive_html=$(curl -s "$os_archive_url")
+
+# Initialize variables before the loop
+os_url=""
+os_latest=""
+os_update_avail="-"
+os_pat=""
+
 if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_name/"; then
     all_os_versions=$(echo "$os_archive_html" | grep -o 'href="/download/Os/'$os_name'/[^"]*"' | sed 's|href="/download/Os/'$os_name'/||;s|"||' | sort -V -r)
+
+    # Normalize installed version for comparison (add -0 if missing smallfix)
+    os_installed_version_normalized="$os_installed_version"
+    if [[ ! "$os_installed_version" =~ -[0-9]+-[0-9]+$ ]]; then
+        os_installed_version_normalized="${os_installed_version}-0"
+    fi
+
     for os_version in $all_os_versions; do
-        if [[ "$os_version" != "$os_installed_version" ]] && [[ $(printf '%s\n%s' "$os_installed_version" "$os_version" | sort -V | head -1) == "$os_installed_version" ]]; then
-            # Newer version found, now check for model compatibility
-            os_version_url="https://archive.synology.com/download/Os/$os_name/$os_version"
-            os_version_html=$(curl -s "$os_version_url")
-            if echo "$os_version_html" | grep -q "$model.*\.pat"; then
-                os_pat=$(echo "$os_version_html" | grep -o "[^/]*$model[^\"']*\.pat" | head -1 | sed 's/.*">//;s/".*$//')
-            else
-                continue
+        [ "$DEBUG" = true ] && echo "[DEBUG] Checking archive version: $os_version"
+
+        # Normalize archive version for comparison
+        os_version_normalized="$os_version"
+        if [[ ! "$os_version" =~ -[0-9]+-[0-9]+$ ]]; then
+            os_version_normalized="${os_version}-0"
+        fi
+
+        [ "$DEBUG" = true ] && echo "[DEBUG] Installed normalized: $os_installed_version_normalized"
+        [ "$DEBUG" = true ] && echo "[DEBUG] Archive normalized: $os_version_normalized"
+
+        # Compare normalized versions
+        if [[ "$os_version_normalized" != "$os_installed_version_normalized" ]]; then
+            [ "$DEBUG" = true ] && echo "[DEBUG] Versions are different, checking if newer..."
+            sort_result=$(printf '%s\n%s' "$os_installed_version_normalized" "$os_version_normalized" | sort -V | head -1)
+            [ "$DEBUG" = true ] && echo "[DEBUG] Sort result (oldest): $sort_result"
+
+            if [[ "$sort_result" == "$os_installed_version_normalized" ]]; then
+                [ "$DEBUG" = true ] && echo "[DEBUG] Archive version is NEWER, checking for .pat file..."
+                # Newer version found, now check for model compatibility
+                os_version_url="https://archive.synology.com/download/Os/$os_name/$os_version"
+                os_version_html=$(curl -s "$os_version_url")
+
+                # Debug: show all .pat files found
+                [ "$DEBUG" = true ] && echo "[DEBUG] All .pat files in $os_version:" && echo "$os_version_html" | grep -o 'href="[^"]*\.pat"' | sed 's/href="//;s/"//'
+
+                # Extract model series (e.g., "1817+" from "DS1817+")
+                model_series="${model#DS}"
+                model_series="${model_series#RS}"
+
+                # Escape special characters in model name for grep
+                model_escaped=$(echo "$model" | sed 's/[+]/\\&/g')
+                model_series_escaped=$(echo "$model_series" | sed 's/[+]/\\&/g')
+
+                [ "$DEBUG" = true ] && echo "[DEBUG] Model: $model"
+                [ "$DEBUG" = true ] && echo "[DEBUG] Model series: $model_series"
+                [ "$DEBUG" = true ] && echo "[DEBUG] Model escaped: $model_escaped"
+                [ "$DEBUG" = true ] && echo "[DEBUG] Model series escaped: $model_series_escaped"
+
+                # Check for either naming convention:
+                # Major releases as versions like 7.3.2-86009 use the model name directly (e.g., DS1817+)
+                # Patch releases as versions like 7.3.2-86009-1 use the platform name with underscore (e.g., $platform_name_1817+)
+                if echo "$os_version_html" | grep -qE "($model_escaped|_${model_series_escaped})|_${platform_name}_${model_series_escaped}.*\.pat"; then
+                    os_pat=$(echo "$os_version_html" | grep -oE "[^/\"']*($model_escaped|_${model_series_escaped}|_${platform_name}_${model_series_escaped})[^\"']*\.pat" | head -1 | sed 's/^[^a-zA-Z0-9]*//;s/^>//')
+                    [ "$DEBUG" = true ] && echo "[DEBUG] Found .pat file: $os_pat"
+                    os_latest="$os_version"
+                    os_update_avail="X"
+
+                    # Extract URL - need to handle URL-encoded characters like %2B for +
+                    # First, get all .pat URLs, then filter for our model
+                    model_series_url_encoded="${model_series//+/%2B}"
+                    model_url_encoded="${model//+/%2B}"
+                    os_url=$(echo "$os_version_html" | grep -o 'href="[^"]*\.pat"' | grep -iE "(${model_url_encoded}|_${model_series_url_encoded})" | head -1 | sed 's|href="||;s|"||')
+                    [ "$DEBUG" = true ] && echo "[DEBUG] Extracted os_url (raw): '$os_url'"
+
+                    # Prepend domain if URL is relative
+                    if [[ "$os_url" =~ ^/ ]]; then
+                        os_url="https://archive.synology.com${os_url}"
+                        [ "$DEBUG" = true ] && echo "[DEBUG] URL was relative, prepended domain: '$os_url'"
+                    else
+                        [ "$DEBUG" = true ] && echo "[DEBUG] URL is absolute or empty: '$os_url'"
+                    fi
+                    [ "$DEBUG" = true ] && echo "[DEBUG] Update available! Latest: $os_latest"
+                    [ "$DEBUG" = true ] && echo "[DEBUG] Final os_url: '$os_url'"
+                    break
+                else
+                    [ "$DEBUG" = true ] && echo "[DEBUG] No .pat file found for model $model (or series $model_series), skipping..."
+                    continue
+                fi
             fi
-            os_latest="$os_version"
-            os_update_avail="X"
-            os_url=$(echo "$os_version_html" | grep "[^/]*$model[^\"']*\.pat" | grep -o "href=\"[^\"']*\.pat" | head -1 | sed 's|href="||;s|"||')
-            break
-        else
-            # No update available
-            os_latest="$os_installed_version"
-            os_update_avail="-"
-            os_pat=""
         fi
     done
-    printf "%-30s | %-15s | %-15s | %-10s | %-20s\n" "$os_name" "$os_installed_version" "$os_latest" "$os_update_avail" "$os_pat"
+
+    # Set default if no update found
+    if [ -z "$os_latest" ]; then
+        os_latest="$os_installed_version"
+        os_update_avail="-"
+        os_pat=""
+        os_url=""
+    fi
+
+    if [ "$INFO_MODE" = true ]; then
+        msg=$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail" "$os_pat")
+        if [ "$EMAIL_MODE" = false ]; then
+            printf "%s\n" "$msg"
+        fi
+        INFO_OUTPUT+="$msg"$'\n'
+
+        # Add download link right after the table if update is available
+        if [ "$os_update_avail" = "X" ] && [ -n "$os_url" ]; then
+            msg=$(printf "\nDownload Link: %s\n" "$os_url")
+            if [ "$EMAIL_MODE" = false ]; then
+                printf "%s" "$msg"
+            fi
+            INFO_OUTPUT+="$msg"
+        fi
+    else
+        printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail" "$os_pat"
+    fi
 fi
 
-# Print download link if OS update is available
-# NOTE: OS downloads are disabled because manual installation is required
-# The command 'synoupgrade --patch' is not supported for automated installation
+# Add download link right after the table if update is available (only for non-INFO_MODE)
 if [ "$os_update_avail" = "X" ] && [ -n "$os_url" ]; then
-    printf "\n"
-    printf "%s\n" "Download Link for OS Update:"
-    printf "%-30s | %-50s\n" "Operating System" "URL"
-    printf "%-30s | %-50s\n" "------------------------------" "--------------------------------------------------"
-    printf "%-30s | %-50s\n" "$os_name $os_latest" "$os_url"
-    printf "\n"
-    printf "NOTE: OS update must be downloaded and installed manually through DSM interface.\n"
-    printf "      Automated installation via 'synoupgrade --patch' is not supported.\n"
+    if [ "$INFO_MODE" = false ]; then
+        printf "\nDownload Link: %s\n" "$os_url"
+    fi
 fi
 
 #-----------------------------------------------------------------------------
@@ -213,13 +560,31 @@ fi
 # 4. Collect packages with available updates for later download
 # 5. Display results in table format with version comparison
 #-----------------------------------------------------------------------------
-printf "\n\n\n"
-printf "Package Update Check\n"
-printf "%s\n" "============================================="
-printf "%s\n"
-# Print header for package update table
-printf "%-30s | %-15s | %-15s | %-10s | %-20s\n" "Package" "Installed" "Latest Version" "Update" "spk"
-printf "%-30s|%-15s|%-15s|%-10s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "------------" "--------------------"
+if [ "$INFO_MODE" = true ]; then
+    msg=$(cat <<EOF
+
+
+
+Package Update Check
+=============================================
+
+$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "Package" "Installed" "Latest Version" "Update" "spk")
+$(printf "%-30s|%-15s|%-15s|%-6s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "--------" "--------------------")
+EOF
+)
+    if [ "$EMAIL_MODE" = false ]; then
+        printf "%s\n" "$msg"
+    fi
+    INFO_OUTPUT+="$msg"$'\n'
+else
+    printf "\n\n\n"
+    printf "Package Update Check\n"
+    printf "%s\n" "============================================="
+    printf "%s\n"
+    # Print header for package update table
+    printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "Package" "Installed" "Latest Version" "Update" "spk"
+    printf "%-30s|%-15s|%-15s|%-6s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "--------" "--------------------"
+fi
 
 # Initialize arrays to track packages with available updates:
 # - download_apps: package names
@@ -290,7 +655,29 @@ for app in $(synopkg list --name | sort); do
         update_avail="-"
         latest_revision="$installed_revision"
     fi
-       printf "%-30s | %-15s | %-15s | %-10s | %-20s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail" "$spk"
+    if [ "$INFO_MODE" = true ]; then
+        msg=$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail" "$spk")
+        if [ "$EMAIL_MODE" = false ]; then
+            printf "%s\n" "$msg"
+        fi
+        INFO_OUTPUT+="$msg"$'\n'
+
+        # Add download link right after the table if update is available
+        if [ "$update_avail" = "X" ] && [ -n "$download_link" ]; then
+            msg=$(printf "\nDownload Link: %s\n" "$download_link")
+            if [ "$EMAIL_MODE" = false ]; then
+                printf "%s" "$msg"
+            fi
+            INFO_OUTPUT+="$msg"
+        fi
+    else
+        printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail" "$spk"
+
+        # Add download link right after the table if update is available
+        if [ "$update_avail" = "X" ] && [ -n "$download_link" ]; then
+            printf "\nDownload Link: %s\n" "$download_link"
+        fi
+    fi
 done
 
 # Print download links if any updates are available
@@ -300,12 +687,31 @@ if [[ ${#download_apps[@]} -gt 0 && ${#download_links[@]} -gt 0 ]]; then
         echo "Error: download_apps and download_links arrays have different lengths."
         exit 1
     fi
-    printf "\n\n\n"
-    printf "Download Links for Available Updates:\n"
-    printf "%s\n" "============================================="
-    printf "%s\n"
-    printf "%-30s | %-30s | %-50s\n" "Application" "Version" "URL"
-    printf "%-30s | %-30s | %-50s\n" "------------------------------" "------------------------------" "--------------------------------------------------"
+
+    if [ "$INFO_MODE" = true ]; then
+        msg=$(cat <<EOF
+
+
+
+Download Links for Available Updates:
+=============================================
+
+$(printf "%-30s | %-30s | %-30s\n" "Application" "Version" "URL")
+$(printf "%-30s | %-30s | %-30s\n" "------------------------------" "------------------------------" "------------------------------")
+EOF
+)
+        if [ "$EMAIL_MODE" = false ]; then
+            printf "%s\n" "$msg"
+        fi
+        INFO_OUTPUT+="$msg"$'\n'
+    else
+        printf "\n\n\n"
+        printf "Download Links for Available Updates:\n"
+        printf "%s\n" "============================================="
+        printf "%s\n"
+        printf "%-30s | %-30s | %-30s\n" "Application" "Version" "URL"
+        printf "%-30s | %-30s | %-30s\n" "------------------------------" "------------------------------" "------------------------------"
+    fi
 
     # count the number of elements in download_apps
     amount=${#download_apps[@]}
@@ -313,41 +719,77 @@ if [[ ${#download_apps[@]} -gt 0 && ${#download_links[@]} -gt 0 ]]; then
     for idx in $(seq 0 $((amount - 1))); do
         app_name="${download_apps[$idx]}"
         url="${download_links[$idx]}"
-        printf "%-30s | %-30s | %-50s\n" "$app_name" "${downlaod_revisions[$idx]}" "$url"
-    done
-    printf "\n\n"
-    printf "Downloading updateable packages\n"
-    printf "%s\n" "============================================="
-    # Download the spk files into the downloads directory if not in dry run mode
-    idx=0
-    for idx in $(seq 0 $((amount - 1))); do
-        url="${download_links[$idx]}"
-        spk_name=$(basename "$url")
-        filePath="$(realpath "$download_dir_pkg/$spk_name")"
-        downlaod_files+=("$filePath")
         if [ "$INFO_MODE" = true ]; then
-            continue
-        elif [ "$DRY_RUN" = true ]; then
-            printf "Dry run mode: Skipping download of %s\n" $(basename "$url")
+            msg=$(printf "%-30s | %-30s | %-30s\n" "$app_name" "${downlaod_revisions[$idx]}" "$url")
+            if [ "$EMAIL_MODE" = false ]; then
+                printf "%s\n" "$msg"
+            fi
+            INFO_OUTPUT+="$msg"$'\n'
         else
-            printf "\n"
-            printf "Downloading %s...\n"
-            printf "Package: %s\n" "${download_apps[$idx]}"
-            printf "File: %s\n" "$spk_name"
-            printf "Path: %s\n" "$filePath"
-            wget -q --show-progress -O "$filePath" "$url"
+            printf "%-30s | %-30s | %-30s\n" "$app_name" "${downlaod_revisions[$idx]}" "$url"
         fi
     done
+
+    if [ "$INFO_MODE" = false ]; then
+        printf "\n\n"
+        printf "Downloading updateable packages\n"
+        printf "%s\n" "============================================="
+        # Download the spk files into the downloads directory if not in dry run mode
+        idx=0
+        for idx in $(seq 0 $((amount - 1))); do
+            url="${download_links[$idx]}"
+            spk_name=$(basename "$url")
+            filePath="$(realpath "$download_dir_pkg/$spk_name")"
+            downlaod_files+=("$filePath")
+            if [ "$DRY_RUN" = true ]; then
+                printf "Dry run mode: Skipping download of %s\n" $(basename "$url")
+            else
+                printf "\n"
+                printf "Downloading %s...\n"
+                printf "Package: %s\n" "${download_apps[$idx]}"
+                printf "File: %s\n" "$spk_name"
+                printf "Path: %s\n" "$filePath"
+                wget -q --show-progress -O "$filePath" "$url"
+            fi
+        done
+    fi
 fi
 
 # Display total count of packages with available updates
 amount=${#download_apps[@]}
-printf "\n"
-printf "Total packages with updates available: %d\n" "$amount"
+if [ "$INFO_MODE" = true ]; then
+    msg=$(printf "\nTotal packages with updates available: %d" "$amount")
+    if [ "$EMAIL_MODE" = false ]; then
+        printf "%s\n" "$msg"
+    fi
+    INFO_OUTPUT+="$msg"$'\n'
+else
+    printf "\n"
+    printf "Total packages with updates available: %d\n" "$amount"
+fi
 
 # Exit if in info mode
 if [ "$INFO_MODE" = true ]; then
-    printf "\nNo installations will be performed. Exiting.\n"
+    # Send email if EMAIL_MODE is enabled
+    if [ "$EMAIL_MODE" = true ]; then
+        # Extract hostname for subject line
+        hostname=$(hostname)
+        email_subject="Synology Update Checker Report"
+
+        # Convert INFO_OUTPUT to plain text (interpret escape sequences)
+        email_body=$(printf "%b" "$INFO_OUTPUT")
+
+        # Send the email
+        if send_email "$email_subject" "$email_body"; then
+            [ "$DEBUG" = true ] && echo "[DEBUG] Email sent successfully"
+        else
+            echo "Error: Failed to send email" >&2
+            exit 1
+        fi
+    else
+        # Display output if not in email mode
+        printf "%b" "$INFO_OUTPUT"
+    fi
     exit 0
 fi
 
@@ -366,7 +808,12 @@ if [ ${#download_apps[@]} -eq 0 ]; then
     exit 0
 fi
 
-printf "\n\n\n"
+# Print simulation mode message if dry-run is enabled
+if [ "$DRY_RUN" = true ]; then
+    printf "\n\n[SIMULATION MODE] Running in dry-run mode. No changes will be made.\n"
+fi
+
+printf "\n"
 printf "Select packages to update:\n"
 printf "==========================\n"
 

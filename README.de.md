@@ -15,6 +15,7 @@ Optionen:
   -i, --info          Nur System- und Update-Informationen anzeigen,
                       wie Dry-run aber ohne Download-Meldungen und interaktive Installation
   -e, --email         E-Mail-Modus - keine Ausgabe auf stdout, nur Bericht per E-Mail senden (erfordert --info)
+  -r, --running       Updates nur für Pakete prüfen, die aktuell laufen
   -n, --dry-run       Testlauf ohne Herunterladen oder Installieren von Updates
   -v, --verbose       Ausführliche Ausgabe aktivieren (nicht implementiert)
   -d, --debug         Debug-Modus aktivieren
@@ -24,8 +25,9 @@ Optionen:
 ### Optionen
 1. **Info-Modus** (`-i, --info`): Zeigt System- und Update-Informationen ohne Herunterladen oder Installieren. Perfekt für schnelle Überprüfungen oder automatisierte Überwachung.
 2. **E-Mail-Modus** (`-e, --email`): Sendet Update-Bericht per E-Mail mit anklickbaren Download-Links. Erfordert E-Mail-Konfiguration in DSM (Systemsteuerung > Benachrichtigung > E-Mail). URLs werden verkürzt dargestellt mit OS-/Paketnamen anstelle vollständiger URLs.
-3. **Dry-run-Modus** (`-n, --dry-run`): Prüft auf Updates und simuliert das Upgrade-Verfahren ohne Herunterladen oder Installieren. Interaktives Menü wird weiterhin angezeigt.
-4. **Debug-Modus** (`-d, --debug`): Aktiviert detaillierte Debug-Ausgabe zur Fehlersuche.
+3. **Nur laufende** (`-r, --running`): Prüft Updates nur für Pakete, die aktuell laufen. Gestoppte Pakete werden übersprungen. Nützlich für die Konzentration auf aktive Dienste.
+4. **Dry-run-Modus** (`-n, --dry-run`): Prüft auf Updates und simuliert das Upgrade-Verfahren ohne Herunterladen oder Installieren. Interaktives Menü wird weiterhin angezeigt.
+5. **Debug-Modus** (`-d, --debug`): Aktiviert detaillierte Debug-Ausgabe zur Fehlersuche.
 
 ### Einschränkungen
 Betriebssystem-Updates z.B. für DSM werden nur gemeldet, da der Befehl ```sudo synoupgrade --patch /pfad/zur/datei.pat``` nicht funktioniert.

@@ -15,6 +15,7 @@ Options:
   -i, --info          Display system and update information only,
                       like dry-run but without download messages and interactive installation
   -e, --email         Email mode - no output to stdout, only send report via email (requires --info)
+  -r, --running       Check updates only for packages that are currently running
   -n, --dry-run       Perform a dry run without downloading or installing updates
   -v, --verbose       Enable verbose output (not implemented)
   -d, --debug         Enable debug mode
@@ -24,8 +25,9 @@ Options:
 ### Options
 1. **Info mode** (`-i, --info`): Display system and update information without downloading or installing. Perfect for quick checks or automated monitoring.
 2. **Email mode** (`-e, --email`): Send update report via email with clickable download links. Requires email configuration in DSM (Control Panel > Notification > Email). URLs are shortened to display OS/package names instead of full URLs.
-3. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
-4. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting.
+3. **Running only** (`-r, --running`): Check updates only for packages that are currently running. Stopped packages are skipped. Useful for focusing on active services.
+4. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
+5. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting.
 
 ### Restrictions
 Operating system updates e.g. for DSM will only reported because the command ```sudo synoupgrade --patch /path/to/file.pat``` does not work.

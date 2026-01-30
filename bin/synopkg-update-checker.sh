@@ -13,6 +13,7 @@
 DRY_RUN=false
 INFO_MODE=false
 EMAIL_MODE=false
+RUNNING_ONLY=false
 VERBOSE=false
 DEBUG=false
 
@@ -24,6 +25,7 @@ usage() {
         -i, --info          Display system and update information only,
                             like dry-run but without download messages and interactive installation
         -e, --email         Email mode - no output to stdout, only capture to variable (requires --info)
+        -r, --running       Check updates only for packages that are currently running
 
         -n, --dry-run       Perform a dry run without downloading or installing updates
         -v, --verbose       Enable verbose output (not implemented)
@@ -37,7 +39,7 @@ EOF
 
 # Parse the command line arguments using getopt
 filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o ienvdh --long info,email,dry-run,verbose,debug,help -- "$@")
+PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,dry-run,running,verbose,debug,help -- "$@")
 retcode=$?
 if [ $retcode != 0 ]; then
     usage
@@ -56,6 +58,9 @@ while true; do
             EMAIL_MODE=true;
             INFO_MODE=true;
             shift ;;
+        -r|--running)
+            RUNNING_ONLY=true; shift ;;
+
         -n|--dry-run)
             DRY_RUN=true; shift ;;
 
@@ -598,6 +603,16 @@ declare -a downlaod_files=()
 
 # Iterate through all installed packages and check for updates
 for app in $(synopkg list --name | sort); do
+    # Skip non-running packages if RUNNING_ONLY is enabled
+    if [ "$RUNNING_ONLY" = true ]; then
+        pkg_status_output=$(synopkg status "$app" 2>/dev/null)
+        pkg_status=$(echo "$pkg_status_output" | jq -r '.status')
+        if [ "$pkg_status" != "running" ]; then
+            [ "$DEBUG" = true ] && echo "[DEBUG] Skipping $app (status: $pkg_status)"
+            continue
+        fi
+    fi
+
     # Identify currently installed revision
     installed_revision=$(synopkg version $app)
 

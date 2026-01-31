@@ -16,6 +16,7 @@ EMAIL_MODE=false
 RUNNING_ONLY=false
 VERBOSE=false
 DEBUG=false
+declare -a COMMUNITIES=()
 
 usage() {
     cat <<EOF
@@ -26,6 +27,10 @@ usage() {
                             like dry-run but without download messages and interactive installation
         -e, --email         Email mode - no output to stdout, only capture to variable (requires --info)
         -r, --running       Check updates only for packages that are currently running
+        -c, --community     Check community repositories for package updates when not found on Synology archive
+                            (can be specified multiple times with: synocommunity, <future_community>)
+                            Example: -c synocommunity
+                            Example: -c synocommunity -c another_community
 
         -n, --dry-run       Perform a dry run without downloading or installing updates
         -v, --verbose       Enable verbose output (not implemented)
@@ -39,7 +44,7 @@ EOF
 
 # Parse the command line arguments using getopt
 filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,dry-run,running,verbose,debug,help -- "$@")
+PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdc:h --long info,email,dry-run,running,verbose,debug,community:,help -- "$@")
 retcode=$?
 if [ $retcode != 0 ]; then
     usage
@@ -60,6 +65,9 @@ while true; do
             shift ;;
         -r|--running)
             RUNNING_ONLY=true; shift ;;
+
+        -c|--community)
+            COMMUNITIES+=("$2"); shift 2 ;;
 
         -n|--dry-run)
             DRY_RUN=true; shift ;;
@@ -672,10 +680,115 @@ for app in $(synopkg list --name | sort); do
             latest_revision="$installed_revision"
         fi
     else
-        spk=""
-        download_link=""
-        update_avail="-"
-        latest_revision="$installed_revision"
+        # No update found on Synology archive, check community repositories if enabled
+        if [ ${#COMMUNITIES[@]} -gt 0 ]; then
+            [ "$DEBUG" = true ] && echo "[DEBUG] No package found on Synology archive for $app, checking community repositories..."
+
+            # Iterate through each specified community
+            for community in "${COMMUNITIES[@]}"; do
+                [ "$DEBUG" = true ] && echo "[DEBUG] Checking community: $community"
+
+                case "$community" in
+                    synocommunity)
+                        # Check SynoCommunity package page
+                        synocommunity_pkg_url="https://synocommunity.com/package/$app"
+                        synocommunity_pkg_html=$(curl -s "$synocommunity_pkg_url")
+
+                        if [ $? -eq 0 ] && ! echo "$synocommunity_pkg_html" | grep -q "404\|Not Found\|not found"; then
+                            [ "$DEBUG" = true ] && echo "[DEBUG] Found $app in SynoCommunity"
+
+                            # Extract version numbers from <dt>Version X.Y.Z-N</dt> tags
+                            # Look for lines with "Version" followed by version pattern
+                            all_syno_versions=$(echo "$synocommunity_pkg_html" | grep -oP '(?<=<dt>Version\s)[0-9]+\.[0-9]+(\.[0-9]+)*-[0-9]+(?=</dt>)' | sort -Vur)
+
+                            [ "$DEBUG" = true ] && echo "[DEBUG] SynoCommunity versions found: $all_syno_versions"
+
+                            for version in $all_syno_versions; do
+                                # Check if version is newer than current installed_revision
+                                if [[ "$version" != "$installed_revision" ]] && [[ $(printf '%s\n%s' "$installed_revision" "$version" | sort -V | head -1) == "$installed_revision" ]]; then
+                                    [ "$DEBUG" = true ] && echo "[DEBUG] Found newer SynoCommunity version: $version"
+
+                                    # Extract download link for this version matching our architecture and DSM major version
+                                    # DSM versions on SynoCommunity: DSM 5.x, DSM 6.x, DSM 7.x map to firmware codes
+                                    # DSM 5.x uses f5644, DSM 6.x uses f25556, DSM 7.x uses f42661
+                                    dsm_major="$major_version"  # e.g., 7 from 7.3.2
+
+                                    # Map DSM major version to firmware codes used in SynoCommunity URLs
+                                    case "$dsm_major" in
+                                        5) firmware_code="f5644" ;;
+                                        6) firmware_code="f25556" ;;
+                                        7) firmware_code="f42661" ;;
+                                        *) firmware_code="" ;;
+                                    esac
+
+                                    [ "$DEBUG" = true ] && echo "[DEBUG] Looking for DSM $dsm_major.x (firmware: $firmware_code) with platform: $platform_name or arch: $arch"
+
+                                    # Try to find the download URL from href attributes matching firmware code and platform/arch
+                                    # First try with platform_name (e.g., kvmx64)
+                                    if [ -n "$firmware_code" ]; then
+                                        spk_url=$(echo "$synocommunity_pkg_html" | grep -oP 'href="\Khttps://packages\.synocommunity\.com[^"]*\.spk' | \
+                                                  grep "$firmware_code" | grep -i "\[$platform_name\]\|$platform_name-\|$platform_name\]" | head -1)
+                                    fi
+
+                                    if [ -z "$spk_url" ] && [ -n "$firmware_code" ]; then
+                                        # Try with architecture if platform_name didn't work (e.g., x86_64)
+                                        spk_url=$(echo "$synocommunity_pkg_html" | grep -oP 'href="\Khttps://packages\.synocommunity\.com[^"]*\.spk' | \
+                                                  grep "$firmware_code" | grep -i "\[$arch\]\|$arch-\|$arch\]" | head -1)
+                                    fi
+
+                                    if [ -z "$spk_url" ]; then
+                                        # Fallback: try without firmware code filter (just platform/arch)
+                                        spk_url=$(echo "$synocommunity_pkg_html" | grep -oP 'href="\Khttps://packages\.synocommunity\.com[^"]*\.spk' | \
+                                                  grep -i "$platform_name" | head -1)
+                                    fi
+
+                                    if [ -n "$spk_url" ]; then
+                                        spk=$(basename "$spk_url")
+                                        # URL decode the filename
+                                        spk=$(echo "$spk" | sed 's/%5B/[/g; s/%5D/]/g')
+
+                                        [ "$DEBUG" = true ] && echo "[DEBUG] Found download URL: $spk_url"
+                                        [ "$DEBUG" = true ] && echo "[DEBUG] SPK filename: $spk"
+
+                                        latest_revision="$version"
+                                        download_apps+=("$app")
+                                        downlaod_revisions+=("$latest_revision")
+                                        download_links+=("$spk_url")
+                                        update_avail="X"
+                                        found="yes"
+                                        break 2  # Break out of both version and community loops
+                                    else
+                                        [ "$DEBUG" = true ] && echo "[DEBUG] No download link found for DSM $dsm_major.x / $platform_name / $arch"
+                                    fi
+                                fi
+                            done
+
+                            if [ -z "$found" ]; then
+                                [ "$DEBUG" = true ] && echo "[DEBUG] No newer version found in SynoCommunity"
+                            fi
+                        else
+                            [ "$DEBUG" = true ] && echo "[DEBUG] Package $app not found in SynoCommunity"
+                        fi
+                        ;;
+
+                    *)
+                        [ "$DEBUG" = true ] && echo "[DEBUG] Unknown community: $community"
+                        ;;
+                esac
+
+                # If found in this community, break the community loop
+                if [ -n "$found" ]; then
+                    break
+                fi
+            done
+        fi
+
+        if [ -z "$found" ]; then
+            spk=""
+            download_link=""
+            update_avail="-"
+            latest_revision="$installed_revision"
+        fi
     fi
     if [ "$INFO_MODE" = true ]; then
         msg=$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail" "$spk")

@@ -16,6 +16,9 @@ Options:
                       like dry-run but without download messages and interactive installation
   -e, --email         Email mode - no output to stdout, only send report via email (requires --info)
   -r, --running       Check updates only for packages that are currently running
+  -c, --community     Check community repositories for package updates when not found on Synology archive
+                      (can be specified multiple times with: synocommunity, <future_community>)
+                      Example: -c synocommunity
   -n, --dry-run       Perform a dry run without downloading or installing updates
   -v, --verbose       Enable verbose output (not implemented)
   -d, --debug         Enable debug mode
@@ -26,8 +29,9 @@ Options:
 1. **Info mode** (`-i, --info`): Display system and update information without downloading or installing. Perfect for quick checks or automated monitoring.
 2. **Email mode** (`-e, --email`): Send update report via email with clickable download links. Requires email configuration in DSM (Control Panel > Notification > Email). URLs are shortened to display OS/package names instead of full URLs.
 3. **Running only** (`-r, --running`): Check updates only for packages that are currently running. Stopped packages are skipped. Useful for focusing on active services.
-4. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
-5. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting.
+4. **Community repositories** (`-c, --community`): Check community repositories (like SynoCommunity) for package updates when not found on the official Synology archive. Can be specified multiple times to check multiple communities. Currently supported: `synocommunity`. Example: `-c synocommunity` or `-c synocommunity -c another_community`.
+5. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
+6. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting.
 
 ### Restrictions
 Operating system updates e.g. for DSM will only reported because the command ```sudo synoupgrade --patch /path/to/file.pat``` does not work.
@@ -58,6 +62,7 @@ Operating system updates e.g. for DSM will only reported because the command ```
    - For each package:
      - Checks for updates via `synopkg checkupdate`
      - If no update found via synopkg, queries the Synology archive server
+     - If still no update found and `-c` flag is used, checks specified community repositories (e.g., SynoCommunity)
      - Verifies architecture and OS compatibility
    - Displays results in a table with columns:
      - Package name

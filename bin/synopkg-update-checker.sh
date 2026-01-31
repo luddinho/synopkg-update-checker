@@ -496,7 +496,8 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                 # Patch releases as versions like 7.3.2-86009-1 use the platform name with underscore (e.g., $platform_name_1817+)
                 # For VirtualDSM, prioritize platform_name match (e.g., synology_kvmx64_virtualdsm.pat)
                 if echo "$os_version_html" | grep -qiE "($model_escaped|_${model_series_escaped})|_${platform_name}(_|.*(${model_lower}|${model_series_lower})).*\.pat"; then
-                    os_pat=$(echo "$os_version_html" | grep -oiE "[^/\"']*($model_escaped|_${model_series_escaped}|_${platform_name}(_|.*(${model_lower}|${model_series_lower})))[^\"']*\.pat" | head -1 | sed 's/^[^a-zA-Z0-9]*//;s/^>//')
+                    # Extract all .pat filenames and filter for our model/platform
+                    os_pat=$(echo "$os_version_html" | grep -oE '[a-zA-Z0-9_+-]+\.pat' | grep -iE "($model_escaped|_${model_series_escaped}|_${platform_name})" | head -1)
                     [ "$DEBUG" = true ] && echo "[DEBUG] Found .pat file: $os_pat"
                     os_latest="$os_version"
                     os_update_avail="X"

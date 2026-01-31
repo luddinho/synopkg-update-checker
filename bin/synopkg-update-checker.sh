@@ -481,17 +481,22 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                 # Escape special characters in model name for grep
                 model_escaped=$(echo "$model" | sed 's/[+]/\\&/g')
                 model_series_escaped=$(echo "$model_series" | sed 's/[+]/\\&/g')
+                # Convert to lowercase for case-insensitive matching
+                model_lower=$(echo "$model" | tr '[:upper:]' '[:lower:]')
+                model_series_lower=$(echo "$model_series" | tr '[:upper:]' '[:lower:]')
 
                 [ "$DEBUG" = true ] && echo "[DEBUG] Model: $model"
                 [ "$DEBUG" = true ] && echo "[DEBUG] Model series: $model_series"
                 [ "$DEBUG" = true ] && echo "[DEBUG] Model escaped: $model_escaped"
                 [ "$DEBUG" = true ] && echo "[DEBUG] Model series escaped: $model_series_escaped"
+                [ "$DEBUG" = true ] && echo "[DEBUG] Platform name: $platform_name"
 
                 # Check for either naming convention:
                 # Major releases as versions like 7.3.2-86009 use the model name directly (e.g., DS1817+)
                 # Patch releases as versions like 7.3.2-86009-1 use the platform name with underscore (e.g., $platform_name_1817+)
-                if echo "$os_version_html" | grep -qE "($model_escaped|_${model_series_escaped})|_${platform_name}_${model_series_escaped}.*\.pat"; then
-                    os_pat=$(echo "$os_version_html" | grep -oE "[^/\"']*($model_escaped|_${model_series_escaped}|_${platform_name}_${model_series_escaped})[^\"']*\.pat" | head -1 | sed 's/^[^a-zA-Z0-9]*//;s/^>//')
+                # For VirtualDSM, prioritize platform_name match (e.g., synology_kvmx64_virtualdsm.pat)
+                if echo "$os_version_html" | grep -qiE "($model_escaped|_${model_series_escaped})|_${platform_name}(_|.*(${model_lower}|${model_series_lower})).*\.pat"; then
+                    os_pat=$(echo "$os_version_html" | grep -oiE "[^/\"']*($model_escaped|_${model_series_escaped}|_${platform_name}(_|.*(${model_lower}|${model_series_lower})))[^\"']*\.pat" | head -1 | sed 's/^[^a-zA-Z0-9]*//;s/^>//')
                     [ "$DEBUG" = true ] && echo "[DEBUG] Found .pat file: $os_pat"
                     os_latest="$os_version"
                     os_update_avail="X"
@@ -500,7 +505,8 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                     # First, get all .pat URLs, then filter for our model
                     model_series_url_encoded="${model_series//+/%2B}"
                     model_url_encoded="${model//+/%2B}"
-                    os_url=$(echo "$os_version_html" | grep -o 'href="[^"]*\.pat"' | grep -iE "(${model_url_encoded}|_${model_series_url_encoded})" | head -1 | sed 's|href="||;s|"||')
+                    # For VirtualDSM and similar, prioritize platform_name in URL matching
+                    os_url=$(echo "$os_version_html" | grep -o 'href="[^"]*\.pat"' | grep -iE "(${model_url_encoded}|_${model_series_url_encoded}|_${platform_name})" | head -1 | sed 's|href="||;s|"||')
                     [ "$DEBUG" = true ] && echo "[DEBUG] Extracted os_url (raw): '$os_url'"
 
                     # Prepend domain if URL is relative
@@ -801,9 +807,6 @@ if [ "$INFO_MODE" = true ]; then
             echo "Error: Failed to send email" >&2
             exit 1
         fi
-    else
-        # Display output if not in email mode
-        printf "%b" "$INFO_OUTPUT"
     fi
     exit 0
 fi

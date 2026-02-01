@@ -19,6 +19,8 @@ VERBOSE=false
 DEBUG=false
 OFFICIAL_ONLY=false
 COMMUNITY_ONLY=false
+OS_ONLY=false
+PACKAGES_ONLY=false
 
 usage() {
     cat <<EOF
@@ -32,6 +34,8 @@ usage() {
         -r, --running       Check updates only for packages that are currently running
         --official-only     Show only official Synology packages
         --community-only    Show only community/third-party packages
+        --os-only           Check only for operating system updates
+        --packages-only     Check only for package updates
 
         -n, --dry-run       Perform a dry run without downloading or installing updates
         -v, --verbose       Enable verbose output (not implemented)
@@ -45,7 +49,7 @@ EOF
 
 # Parse the command line arguments using getopt
 filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,email-to:,dry-run,running,verbose,debug,official-only,community-only,help -- "$@")
+PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,email-to:,dry-run,running,verbose,debug,official-only,community-only,os-only,packages-only,help -- "$@")
 retcode=$?
 if [ $retcode != 0 ]; then
     usage
@@ -75,6 +79,12 @@ while true; do
         --community-only)
             COMMUNITY_ONLY=true; shift ;;
 
+        --os-only)
+            OS_ONLY=true; shift ;;
+
+        --packages-only)
+            PACKAGES_ONLY=true; shift ;;
+
         -n|--dry-run)
             DRY_RUN=true; shift ;;
 
@@ -101,6 +111,13 @@ done
 # Validate that both filter options are not used together
 if [ "$OFFICIAL_ONLY" = true ] && [ "$COMMUNITY_ONLY" = true ]; then
     echo "Error: Cannot use --official-only and --community-only together"
+    usage
+    exit 1
+fi
+
+# Validate that both OS and package filter options are not used together
+if [ "$OS_ONLY" = true ] && [ "$PACKAGES_ONLY" = true ]; then
+    echo "Error: Cannot use --os-only and --packages-only together"
     usage
     exit 1
 fi
@@ -578,6 +595,7 @@ fi
 # 4. Display results in table format
 # 5. Provide download link if update is available
 #-----------------------------------------------------------------------------
+if [ "$PACKAGES_ONLY" = false ]; then
 if [ "$INFO_MODE" = true ]; then
     msg=$(cat <<EOF
 
@@ -764,6 +782,7 @@ if [ "$os_update_avail" = "X" ] && [ -n "$os_url" ]; then
         printf "\nDownload Link: %s\n" "$os_url"
     fi
 fi
+fi  # End of OS_ONLY check
 
 #-----------------------------------------------------------------------------
 # PACKAGE UPDATE CHECK
@@ -774,6 +793,7 @@ fi
 # 4. Collect packages with available updates for later download
 # 5. Display results in table format with version comparison
 #-----------------------------------------------------------------------------
+if [ "$OS_ONLY" = false ]; then
 if [ "$INFO_MODE" = true ]; then
     msg=$(cat <<EOF
 
@@ -793,7 +813,13 @@ EOF
 
     # Build HTML table for email
     if [ "$EMAIL_MODE" = true ]; then
-        HTML_OUTPUT+="<h2>3. Packages</h2>"
+        # Determine chapter number: 2 if OS check was skipped (--packages-only), otherwise 3
+        if [ "$PACKAGES_ONLY" = true ]; then
+            chapter_num="2"
+        else
+            chapter_num="3"
+        fi
+        HTML_OUTPUT+="<h2>${chapter_num}. Packages</h2>"
         HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
         HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 31%;'>Package</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 15%;'>Source</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Update</th></tr>"
     fi
@@ -1192,6 +1218,8 @@ else
     fi
     printf "Total packages with updates available: %d\n" "$amount"
 fi
+
+fi  # End of PACKAGES_ONLY check
 
 # Exit if in info mode
 if [ "$INFO_MODE" = true ]; then

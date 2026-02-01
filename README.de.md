@@ -19,6 +19,8 @@ Optionen:
   -r, --running       Updates nur für Pakete prüfen, die aktuell laufen
   --official-only     Nur offizielle Synology-Pakete anzeigen
   --community-only    Nur Community-/Drittanbieter-Pakete anzeigen
+  --os-only           Nur nach Betriebssystem-Updates prüfen
+  --packages-only     Nur nach Paket-Updates prüfen
   -n, --dry-run       Testlauf ohne Herunterladen oder Installieren von Updates
   -v, --verbose       Ausführliche Ausgabe aktivieren (nicht implementiert)
   -d, --debug         Debug-Modus aktivieren
@@ -41,8 +43,10 @@ Optionen:
 3. **Nur laufende** (`-r, --running`): Prüft Updates nur für Pakete, die aktuell laufen. Gestoppte Pakete werden übersprungen. Nützlich für die Konzentration auf aktive Dienste. Paketzähler zeigt nur laufende Pakete, wenn mit diesem Filter kombiniert.
 4. **Nur offiziell** (`--official-only`): Zeigt nur offizielle Synology-Pakete. Community-/Drittanbieter-Pakete werden herausgefiltert. Paketzähler zeigt nur offizielle Pakete.
 5. **Nur Community** (`--community-only`): Zeigt nur Community-/Drittanbieter-Pakete (z.B. von SynoCommunity). Offizielle Synology-Pakete werden herausgefiltert. Paketzähler zeigt nur Community-Pakete. Kann nicht mit `--official-only` verwendet werden.
-6. **Dry-run-Modus** (`-n, --dry-run`): Prüft auf Updates und simuliert das Upgrade-Verfahren ohne Herunterladen oder Installieren. Interaktives Menü wird weiterhin angezeigt.
-7. **Debug-Modus** (`-d, --debug`): Aktiviert detaillierte Debug-Ausgabe zur Fehlersuche:
+6. **Nur Betriebssystem** (`--os-only`): Prüft nur nach Betriebssystem-Updates. Paket-Update-Prüfung wird übersprungen. Kann nicht mit `--packages-only` verwendet werden.
+7. **Nur Pakete** (`--packages-only`): Prüft nur nach Paket-Updates. Betriebssystem-Update-Prüfung wird übersprungen. Kann nicht mit `--os-only` verwendet werden.
+8. **Dry-run-Modus** (`-n, --dry-run`): Prüft auf Updates und simuliert das Upgrade-Verfahren ohne Herunterladen oder Installieren. Interaktives Menü wird weiterhin angezeigt.
+9. **Debug-Modus** (`-d, --debug`): Aktiviert detaillierte Debug-Ausgabe zur Fehlersuche:
    - Paketquellen-Erkennung (distributor-Feld)
    - Server-URLs, die abgefragt werden (Synology-Archiv oder Community-Repositorys)
    - Versionsvergleichslogik und Matching-Prozess

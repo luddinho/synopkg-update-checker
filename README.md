@@ -19,6 +19,8 @@ Options:
   -r, --running       Check updates only for packages that are currently running
   --official-only     Show only official Synology packages
   --community-only    Show only community/third-party packages
+  --os-only           Check only for operating system updates
+  --packages-only     Check only for package updates
   -n, --dry-run       Perform a dry run without downloading or installing updates
   -v, --verbose       Enable verbose output (not implemented)
   -d, --debug         Enable debug mode
@@ -41,8 +43,10 @@ Options:
 3. **Running only** (`-r, --running`): Check updates only for packages that are currently running. Stopped packages are skipped. Useful for focusing on active services. Package count reflects only running packages when combined with this filter.
 4. **Official only** (`--official-only`): Show only official Synology packages. Community/third-party packages are filtered out. Package count shows only official packages.
 5. **Community only** (`--community-only`): Show only community/third-party packages (e.g., from SynoCommunity). Official Synology packages are filtered out. Package count shows only community packages. Cannot be used with `--official-only`.
-6. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
-7. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting including:
+6. **OS only** (`--os-only`): Check only for operating system updates. Package update check is skipped. Cannot be used with `--packages-only`.
+7. **Packages only** (`--packages-only`): Check only for package updates. Operating system update check is skipped. Cannot be used with `--os-only`.
+8. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
+9. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting including:
    - Package source detection (distributor field)
    - Server URLs being queried (Synology archive or community repositories)
    - Version comparison logic and matching process

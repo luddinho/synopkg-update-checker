@@ -16,9 +16,8 @@ Optionen:
                       wie Dry-run aber ohne Download-Meldungen und interaktive Installation
   -e, --email         E-Mail-Modus - keine Ausgabe auf stdout, nur Bericht per E-Mail senden (erfordert --info)
   -r, --running       Updates nur für Pakete prüfen, die aktuell laufen
-  -c, --community     Community-Repositorys für Paket-Updates prüfen, wenn nicht im Synology-Archiv gefunden
-                      (kann mehrfach angegeben werden mit: synocommunity, <zukünftige_community>)
-                      Beispiel: -c synocommunity
+  --official-only     Nur offizielle Synology-Pakete anzeigen
+  --community-only    Nur Community-/Drittanbieter-Pakete anzeigen
   -n, --dry-run       Testlauf ohne Herunterladen oder Installieren von Updates
   -v, --verbose       Ausführliche Ausgabe aktivieren (nicht implementiert)
   -d, --debug         Debug-Modus aktivieren
@@ -32,14 +31,20 @@ Optionen:
      - Systeminformationen: Grüne Überschrift
      - Betriebssystem: Hellblaue Überschrift
      - Pakete: Orange Überschrift
+   - **Paketquellen-Badges**: 🏢 OFFICIAL (blau) oder 👥 COMMUNITY (lila) mit Quellennamen
    - **Visuelle Indikatoren**: 🔄 Emoji für verfügbare Updates, ✅ Emoji für keine Updates
    - **Anklickbare Download-Links**: Versionsnummern werden zu klickbaren Links, wenn Updates verfügbar sind
    - **Zusammenfassungsstatistiken**: Gesamtzahl installierter Pakete und Pakete mit Updates
    - Erfordert E-Mail-Konfiguration in DSM (Systemsteuerung > Benachrichtigung > E-Mail)
-3. **Nur laufende** (`-r, --running`): Prüft Updates nur für Pakete, die aktuell laufen. Gestoppte Pakete werden übersprungen. Nützlich für die Konzentration auf aktive Dienste.
-4. **Community-Repositorys** (`-c, --community`): Prüft Community-Repositorys (wie SynoCommunity) für Paket-Updates, wenn diese nicht im offiziellen Synology-Archiv gefunden werden. Kann mehrfach angegeben werden, um mehrere Communities zu prüfen. Aktuell unterstützt: `synocommunity`. Beispiel: `-c synocommunity` oder `-c synocommunity -c weitere_community`.
-5. **Dry-run-Modus** (`-n, --dry-run`): Prüft auf Updates und simuliert das Upgrade-Verfahren ohne Herunterladen oder Installieren. Interaktives Menü wird weiterhin angezeigt.
-6. **Debug-Modus** (`-d, --debug`): Aktiviert detaillierte Debug-Ausgabe zur Fehlersuche. In Kombination mit E-Mail-Modus (`-d -e`) wird eine Kopie der HTML-E-Mail in `debug/email_JJJJMMTT_HHMMSS.html` zur Inspektion gespeichert.
+3. **Nur laufende** (`-r, --running`): Prüft Updates nur für Pakete, die aktuell laufen. Gestoppte Pakete werden übersprungen. Nützlich für die Konzentration auf aktive Dienste. Paketzähler zeigt nur laufende Pakete, wenn mit diesem Filter kombiniert.
+4. **Nur offiziell** (`--official-only`): Zeigt nur offizielle Synology-Pakete. Community-/Drittanbieter-Pakete werden herausgefiltert. Paketzähler zeigt nur offizielle Pakete.
+5. **Nur Community** (`--community-only`): Zeigt nur Community-/Drittanbieter-Pakete (z.B. von SynoCommunity). Offizielle Synology-Pakete werden herausgefiltert. Paketzähler zeigt nur Community-Pakete. Kann nicht mit `--official-only` verwendet werden.
+6. **Dry-run-Modus** (`-n, --dry-run`): Prüft auf Updates und simuliert das Upgrade-Verfahren ohne Herunterladen oder Installieren. Interaktives Menü wird weiterhin angezeigt.
+7. **Debug-Modus** (`-d, --debug`): Aktiviert detaillierte Debug-Ausgabe zur Fehlersuche:
+   - Paketquellen-Erkennung (distributor-Feld)
+   - Server-URLs, die abgefragt werden (Synology-Archiv oder Community-Repositorys)
+   - Versionsvergleichslogik und Matching-Prozess
+   - In Kombination mit E-Mail-Modus (`-d -e`) wird eine Kopie der HTML-E-Mail in `debug/email_JJJJMMTT_HHMMSS.html` zur Inspektion gespeichert.
 
 ### Einschränkungen
 Betriebssystem-Updates z.B. für DSM werden nur gemeldet, da der Befehl ```sudo synoupgrade --patch /pfad/zur/datei.pat``` nicht funktioniert.
@@ -68,17 +73,21 @@ Betriebssystem-Updates z.B. für DSM werden nur gemeldet, da der Befehl ```sudo 
 4. Paket-Update-Prüfung
    - Iteriert durch alle installierten Pakete mit `synopkg list`
    - Für jedes Paket:
-     - Prüft auf Updates über `synopkg checkupdate`
-     - Falls kein Update über synopkg gefunden wird, wird der Synology Archiv-Server abgefragt
-     - Falls immer noch kein Update gefunden wird und das `-c` Flag verwendet wird, werden die angegebenen Community-Repositorys geprüft (z.B. SynoCommunity)
+     - Erkennt Paketquelle automatisch durch Prüfung des `distributor`-Feldes in `/var/packages/<paket>/INFO`:
+       - Kein distributor-Feld oder `distributor="Synology Inc."`: Offizielles Synology-Paket
+       - Anderer Distributor (z.B. `SynoCommunity`): Community-/Drittanbieter-Paket
+     - Wendet Filteroptionen (`--official-only`, `--community-only`, `--running`) an, falls angegeben
+     - Für offizielle Pakete: Fragt nur Synology-Archiv-Server ab
+     - Für Community-Pakete: Fragt Community-Repository direkt ab (z.B. SynoCommunity) mit der `distributor_url` aus der INFO-Datei
      - Überprüft Architektur- und OS-Kompatibilität
    - Zeigt Ergebnisse in einer Tabelle mit Spalten:
      - Paketname
+     - Quelle (Distributor/Maintainer mit Badge im E-Mail-Modus)
      - Installierte Version
      - Neueste Version
      - Update verfügbar (X oder -)
-     - SPK-Dateiname
    - Erstellt eine Liste von Paketen mit verfügbaren Updates
+   - Paketzähler berücksichtigt aktive Filter
 
 5. Paket-Download
    - Lädt alle verfügbaren Paket-Updates (`.spk`-Dateien) in das Verzeichnis `downloads/packages/` herunter
@@ -180,13 +189,13 @@ DSM                            | 7.3.2-86009     | 7.3.2-86009          | -
 Package Update Check
 =============================================
 
-Package                        | Installed       | Latest Version       | Update
--------------------------------|-----------------|----------------------|--------
-ActiveInsight                  | 3.0.5-24122     | 3.0.5-24122          | -
-Apache2.4                      | 2.4.63-0155     | 2.4.63-0155          | -
-MariaDB10                      | 10.11.11-1551   | 10.11.11-1551        | -
-SynologyDrive                  | 4.0.2-27889     | 4.0.2-27889          | -
-SynologyPhotos                 | 1.8.2-10090     | 1.8.2-10090          | -
+Package                        | Source                         | Installed       | Latest Version  | Update
+-------------------------------|--------------------------------|-----------------|-----------------|--------
+ActiveInsight                  | Synology Inc.                  | 3.0.5-24122     | 3.0.5-24122     | -
+Apache2.4                      | Synology Inc.                  | 2.4.63-0155     | 2.4.63-0155     | -
+MariaDB10                      | Synology Inc.                  | 10.11.11-1551   | 10.11.11-1551   | -
+SynologyDrive                  | Synology Inc.                  | 4.0.2-27889     | 4.0.2-27889     | -
+SynologyPhotos                 | Synology Inc.                  | 1.8.2-10090     | 1.8.2-10090     | -
 
 Total installed packages: 5
 Total packages with updates available: 0
@@ -216,11 +225,11 @@ DSM                            | 7.3.2-86009     | 7.3.2-86009          | -
 Package Update Check
 =============================================
 
-Package                        | Installed       | Latest Version       | Update
--------------------------------|-----------------|----------------------|--------
-MariaDB10                      | 10.11.11-1551   | 10.11.12-1552        | X
-SynologyDrive                  | 4.0.2-27889     | 4.0.3-27900          | X
-SynologyPhotos                 | 1.8.2-10090     | 1.8.2-10090          | -
+Package                        | Source                         | Installed       | Latest Version  | Update
+-------------------------------|--------------------------------|-----------------|-----------------|--------
+MariaDB10                      | Synology Inc.                  | 10.11.11-1551   | 10.11.12-1552   | X
+SynologyDrive                  | Synology Inc.                  | 4.0.2-27889     | 4.0.3-27900     | X
+SynologyPhotos                 | Synology Inc.                  | 1.8.2-10090     | 1.8.2-10090     | -
 
 Download Links for Available Updates:
 =============================================

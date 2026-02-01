@@ -16,7 +16,8 @@ EMAIL_MODE=false
 RUNNING_ONLY=false
 VERBOSE=false
 DEBUG=false
-declare -a COMMUNITIES=()
+OFFICIAL_ONLY=false
+COMMUNITY_ONLY=false
 
 usage() {
     cat <<EOF
@@ -27,10 +28,8 @@ usage() {
                             like dry-run but without download messages and interactive installation
         -e, --email         Email mode - no output to stdout, only capture to variable (requires --info)
         -r, --running       Check updates only for packages that are currently running
-        -c, --community     Check community repositories for package updates when not found on Synology archive
-                            (can be specified multiple times with: synocommunity, <future_community>)
-                            Example: -c synocommunity
-                            Example: -c synocommunity -c another_community
+        --official-only     Show only official Synology packages
+        --community-only    Show only community/third-party packages
 
         -n, --dry-run       Perform a dry run without downloading or installing updates
         -v, --verbose       Enable verbose output (not implemented)
@@ -44,7 +43,7 @@ EOF
 
 # Parse the command line arguments using getopt
 filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdc:h --long info,email,dry-run,running,verbose,debug,community:,help -- "$@")
+PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,dry-run,running,verbose,debug,official-only,community-only,help -- "$@")
 retcode=$?
 if [ $retcode != 0 ]; then
     usage
@@ -66,8 +65,11 @@ while true; do
         -r|--running)
             RUNNING_ONLY=true; shift ;;
 
-        -c|--community)
-            COMMUNITIES+=("$2"); shift 2 ;;
+        --official-only)
+            OFFICIAL_ONLY=true; shift ;;
+
+        --community-only)
+            COMMUNITY_ONLY=true; shift ;;
 
         -n|--dry-run)
             DRY_RUN=true; shift ;;
@@ -91,6 +93,71 @@ while true; do
             break ;;
     esac
 done
+
+# Validate that both filter options are not used together
+if [ "$OFFICIAL_ONLY" = true ] && [ "$COMMUNITY_ONLY" = true ]; then
+    echo "Error: Cannot use --official-only and --community-only together"
+    usage
+    exit 1
+fi
+
+#-----------------------------------------------------------------------------
+# GET PACKAGE MAINTAINER
+# Extract distributor or maintainer information from package INFO file
+# Returns: distributor (if present) or maintainer name, or "Unknown" if not found
+#-----------------------------------------------------------------------------
+get_package_distributor() {
+    local package_name="$1"
+    local info_file="/var/packages/${package_name}/INFO"
+
+    if [ -f "$info_file" ]; then
+        # Extract distributor field first (present in community packages)
+        local distributor=$(grep '^distributor=' "$info_file" | cut -d'=' -f2- | tr -d '"')
+        if [ -n "$distributor" ]; then
+            echo "$distributor"
+            return
+        fi
+
+        # Fall back to maintainer field (for official packages)
+        local maintainer=$(grep '^maintainer=' "$info_file" | cut -d'=' -f2- | tr -d '"')
+        if [ -n "$maintainer" ]; then
+            echo "$maintainer"
+        else
+            echo "Unknown"
+        fi
+    else
+        echo "Unknown"
+    fi
+}
+
+#-----------------------------------------------------------------------------
+# CHECK IF PACKAGE IS OFFICIAL
+# Determine if a package is from Synology based on distributor field
+# Community packages have a distributor field, official Synology packages don't
+# Returns: 0 (true) if official, 1 (false) if community/third-party
+#-----------------------------------------------------------------------------
+is_official_package() {
+    local package_name="$1"
+    local info_file="/var/packages/${package_name}/INFO"
+
+    if [ -f "$info_file" ]; then
+        # Check if distributor field exists (community packages have this)
+        local distributor=$(grep '^distributor=' "$info_file" | cut -d'=' -f2- | tr -d '"')
+        if [ -n "$distributor" ]; then
+            # Check if distributor is Synology Inc. (official)
+            if [[ "$distributor" == "Synology Inc." ]]; then
+                return 0  # Synology Inc. -> Official
+            else
+                return 1  # Other distributor -> Community/Third-party
+            fi
+        else
+            return 0  # No distributor -> Official Synology
+        fi
+    else
+        # If INFO file doesn't exist, assume unknown/community
+        return 1
+    fi
+}
 
 #-----------------------------------------------------------------------------
 # CONVERT URLS TO HTML LINKS
@@ -428,7 +495,7 @@ EOF
     if [ "$EMAIL_MODE" = true ]; then
         HTML_OUTPUT+="<h2>1. System Information</h2>"
         HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
-        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 60%;'>Property</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 40%;'>Value</th></tr>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 46%;'>Property</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 54%;'>Value</th></tr>"
         HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Product</td><td style='border: 1px solid #ddd; padding: 4px;'>$product</td></tr>"
         HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Model</td><td style='border: 1px solid #ddd; padding: 4px;'>$model</td></tr>"
         HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Architecture</td><td style='border: 1px solid #ddd; padding: 4px;'>$arch</td></tr>"
@@ -479,7 +546,7 @@ EOF
     if [ "$EMAIL_MODE" = true ]; then
         HTML_OUTPUT+="<h2>2. Operating System</h2>"
         HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
-        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 40%;'>Operating System</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 20%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 20%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 20%;'>Update</th></tr>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 46%;'>Operating System</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 18%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 18%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 18%;'>Update</th></tr>"
     fi
 else
     printf "\n\n\n"
@@ -662,8 +729,8 @@ if [ "$INFO_MODE" = true ]; then
 Package Update Check
 =============================================
 
-$(printf "%-30s | %-15s | %-15s | %-6s\n" "Package" "Installed" "Latest Version" "Update")
-$(printf "%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "-----------------" "-----------------" "--------")
+$(printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "Package" "Source" "Installed" "Latest Version" "Update")
+$(printf "%-30s|%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "--------------------------------" "-----------------" "-----------------" "--------")
 EOF
 )
     if [ "$EMAIL_MODE" = false ]; then
@@ -675,7 +742,7 @@ EOF
     if [ "$EMAIL_MODE" = true ]; then
         HTML_OUTPUT+="<h2>3. Packages</h2>"
         HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
-        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 40%;'>Package</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 20%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 20%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 20%;'>Update</th></tr>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 31%;'>Package</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 15%;'>Source</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Update</th></tr>"
     fi
 else
     printf "\n\n\n"
@@ -683,8 +750,8 @@ else
     printf "%s\n" "============================================="
     printf "%s\n"
     # Print header for package update table
-    printf "%-30s | %-15s | %-15s | %-6s\n" "Package" "Installed" "Latest Version" "Update"
-    printf "%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "-----------------" "-----------------" "--------"
+    printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "Package" "Source" "Installed" "Latest Version" "Update"
+    printf "%-30s|%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "--------------------------------" "-----------------" "-----------------" "--------"
 fi
 
 # Initialize arrays to track packages with available updates:
@@ -699,10 +766,30 @@ declare -a downlaod_files=()
 
 # Count total installed packages
 total_installed_packages=0
+# Count total running packages (when RUNNING_ONLY is enabled)
+total_running_packages=0
 
 # Iterate through all installed packages and check for updates
 for app in $(synopkg list --name | sort); do
-    ((total_installed_packages++))
+    # Get package maintainer/source
+    pkg_distributor=$(get_package_distributor "$app")
+    [ "$DEBUG" = true ] && echo "[DEBUG] Package: $app, Maintainer: $pkg_distributor"
+
+    # Apply source filters
+    if [ "$OFFICIAL_ONLY" = true ]; then
+        if ! is_official_package "$app"; then
+            [ "$DEBUG" = true ] && echo "[DEBUG] Skipping $app (not official, maintainer: $pkg_distributor)"
+            continue
+        fi
+    fi
+
+    if [ "$COMMUNITY_ONLY" = true ]; then
+        if is_official_package "$app"; then
+            [ "$DEBUG" = true ] && echo "[DEBUG] Skipping $app (not community, maintainer: $pkg_distributor)"
+            continue
+        fi
+    fi
+
     # Skip non-running packages if RUNNING_ONLY is enabled
     if [ "$RUNNING_ONLY" = true ]; then
         pkg_status_output=$(synopkg status "$app" 2>/dev/null)
@@ -711,15 +798,34 @@ for app in $(synopkg list --name | sort); do
             [ "$DEBUG" = true ] && echo "[DEBUG] Skipping $app (status: $pkg_status)"
             continue
         fi
+        # Count running packages
+        ((total_running_packages++))
     fi
+
+    # Count packages after filters are applied
+    ((total_installed_packages++))
 
     # Identify currently installed revision
     installed_revision=$(synopkg version $app)
 
-    # Check Synology archive server for available updates
-    archive_url="https://archive.synology.com/download/Package/$app"
-    archive_html=$(curl -s "$archive_url")
-    if [ $? -eq 0 ] && echo "$archive_html" | grep -q "href=\"/download/Package/$app/"; then
+    # Initialize variables for this package iteration
+    latest_revision="$installed_revision"
+    url=""
+    spk=""
+    update_avail="-"
+    found=""
+
+    # Check Synology archive server for available updates if distributor is Synology itself
+    if is_official_package "$app"; then
+        archive_url="https://archive.synology.com/download/Package/$app"
+        [ "$DEBUG" = true ] && echo "[DEBUG] Checking Synology archive server: $archive_url"
+        archive_html=$(curl -s "$archive_url")
+    else
+        # For community packages, skip Synology archive check
+        archive_html=""
+    fi
+
+    if [ -n "$archive_html" ] && echo "$archive_html" | grep -q "href=\"/download/Package/$app/"; then
         # Extract all version folders, sort numerically descending (latest first)
         all_versions=$(echo "$archive_html" | grep -o 'href="/download/Package/'$app'/[^"]*"' | sed 's|href="/download/Package/'$app'/||;s|"||' | sort -V -r)
         found=""
@@ -765,18 +871,20 @@ for app in $(synopkg list --name | sort); do
             latest_revision="$installed_revision"
         fi
     else
-        # No update found on Synology archive, check community repositories if enabled
-        if [ ${#COMMUNITIES[@]} -gt 0 ]; then
-            [ "$DEBUG" = true ] && echo "[DEBUG] No package found on Synology archive for $app, checking community repositories..."
+        # No update found on Synology archive or this is a community package - check community repositories
+        if ! is_official_package "$app"; then
+            [ "$DEBUG" = true ] && echo "[DEBUG] Checking community repositories for $app..."
 
-            # Iterate through each specified community
-            for community in "${COMMUNITIES[@]}"; do
-                [ "$DEBUG" = true ] && echo "[DEBUG] Checking community: $community"
+            # Determine community repository based on distributor field
+            # Convert distributor to lowercase for matching
+            community=$(echo "$pkg_distributor" | tr '[:upper:]' '[:lower:]')
+            [ "$DEBUG" = true ] && echo "[DEBUG] Checking community: $community (from distributor: $pkg_distributor)"
 
-                case "$community" in
-                    synocommunity)
+            case "$community" in
+                SynoCommunity*|synocommunity*|SynoCommunity|synocommunity)
                         # Check SynoCommunity package page
                         synocommunity_pkg_url="https://synocommunity.com/package/$app"
+                        [ "$DEBUG" = true ] && echo "[DEBUG] Checking SynoCommunity server: $synocommunity_pkg_url"
                         synocommunity_pkg_html=$(curl -s "$synocommunity_pkg_url")
 
                         if [ $? -eq 0 ] && ! echo "$synocommunity_pkg_html" | grep -q "404\|Not Found\|not found"; then
@@ -836,12 +944,13 @@ for app in $(synopkg list --name | sort); do
                                         [ "$DEBUG" = true ] && echo "[DEBUG] SPK filename: $spk"
 
                                         latest_revision="$version"
+                                        url="$spk_url"
                                         download_apps+=("$app")
                                         downlaod_revisions+=("$latest_revision")
                                         download_links+=("$spk_url")
                                         update_avail="X"
                                         found="yes"
-                                        break 2  # Break out of both version and community loops
+                                        break  # Break out of version loop
                                     else
                                         [ "$DEBUG" = true ] && echo "[DEBUG] No download link found for DSM $dsm_major.x / $platform_name / $arch"
                                     fi
@@ -855,17 +964,10 @@ for app in $(synopkg list --name | sort); do
                             [ "$DEBUG" = true ] && echo "[DEBUG] Package $app not found in SynoCommunity"
                         fi
                         ;;
-
-                    *)
-                        [ "$DEBUG" = true ] && echo "[DEBUG] Unknown community: $community"
+                *)
+                        [ "$DEBUG" = true ] && echo "[DEBUG] No matching community server for distributor: $pkg_distributor"
                         ;;
-                esac
-
-                # If found in this community, break the community loop
-                if [ -n "$found" ]; then
-                    break
-                fi
-            done
+            esac
         fi
 
         if [ -z "$found" ]; then
@@ -876,7 +978,7 @@ for app in $(synopkg list --name | sort); do
         fi
     fi
     if [ "$INFO_MODE" = true ]; then
-        msg=$(printf "%-30s | %-15s | %-15s | %-6s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail")
+        msg=$(printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "$app" "$pkg_distributor" "$installed_revision" "$latest_revision" "$update_avail")
         if [ "$EMAIL_MODE" = false ]; then
             printf "%s\n" "$msg"
         fi
@@ -897,7 +999,17 @@ for app in $(synopkg list --name | sort); do
                 update_icon="<span style='font-size: 14px; color: #51CF66;'>✅</span>"
                 latest_revision_display="$latest_revision"
             fi
-            HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$app</td><td style='border: 1px solid #ddd; padding: 4px;'>$installed_revision</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_revision_display</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
+
+            # Add visual indicator for package source
+            if is_official_package "$app"; then
+                # Official package - blue badge with source name
+                source_display="<span style='background-color: #1E90FF; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>🏢 OFFICIAL</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor</span>"
+            else
+                # Community package - purple badge with source name
+                source_display="<span style='background-color: #9B59B6; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>👥 COMMUNITY</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor</span>"
+            fi
+
+            HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$app</td><td style='border: 1px solid #ddd; padding: 4px;'>$source_display</td><td style='border: 1px solid #ddd; padding: 4px;'>$installed_revision</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_revision_display</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
         fi
 
         # Add download link right after the table if update is available
@@ -909,7 +1021,7 @@ for app in $(synopkg list --name | sort); do
             INFO_OUTPUT+="$msg"
         fi
     else
-        printf "%-30s | %-15s | %-15s | %-6s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail"
+        printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "$app" "$pkg_distributor" "$installed_revision" "$latest_revision" "$update_avail"
 
         # Add download link right after the table if update is available
         if [ "$update_avail" = "X" ] && [ -n "$download_link" ]; then
@@ -1001,7 +1113,11 @@ fi
 # Display total count of packages with available updates
 amount=${#download_apps[@]}
 if [ "$INFO_MODE" = true ]; then
-    msg=$(printf "\nTotal installed packages: %d\nTotal packages with updates available: %d" "$total_installed_packages" "$amount")
+    if [ "$RUNNING_ONLY" = true ]; then
+        msg=$(printf "\nTotal installed packages: %d\nTotal running packages: %d\nTotal packages with updates available: %d" "$total_installed_packages" "$total_running_packages" "$amount")
+    else
+        msg=$(printf "\nTotal installed packages: %d\nTotal packages with updates available: %d" "$total_installed_packages" "$amount")
+    fi
     if [ "$EMAIL_MODE" = false ]; then
         printf "%s\n" "$msg"
     fi
@@ -1010,11 +1126,17 @@ if [ "$INFO_MODE" = true ]; then
     # Add summary to HTML
     if [ "$EMAIL_MODE" = true ]; then
         HTML_OUTPUT+="<p style='margin-top: 20px; font-weight: bold;'>Total installed packages: $total_installed_packages</p>"
+        if [ "$RUNNING_ONLY" = true ]; then
+            HTML_OUTPUT+="<p style='font-weight: bold;'>Total running packages: $total_running_packages</p>"
+        fi
         HTML_OUTPUT+="<p style='font-weight: bold;'>Total packages with updates available: $amount</p>"
     fi
 else
     printf "\n"
     printf "Total installed packages: %d\n" "$total_installed_packages"
+    if [ "$RUNNING_ONLY" = true ]; then
+        printf "Total running packages: %d\n" "$total_running_packages"
+    fi
     printf "Total packages with updates available: %d\n" "$amount"
 fi
 

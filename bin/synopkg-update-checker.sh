@@ -191,35 +191,59 @@ send_email() {
     # Add subject prefix if configured
     local full_subject="${subject_prefix}${subject}"
 
-    # Convert URLs to HTML links with app names
-    local processed_body=$(convert_urls_to_html_links "$body")
+    # Use HTML_OUTPUT if available (proper HTML tables), otherwise convert plain text
+    local html_body
+    if [ -n "$HTML_OUTPUT" ]; then
+        # HTML_OUTPUT already contains proper HTML tables
+        html_body="<!DOCTYPE html>
+<html>
+<head>
+<meta charset=\"UTF-8\">
+<style>
+    body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; background-color: #f5f5f5; padding: 20px; }
+    .container { background-color: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h2 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 5px; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+    th { border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: left; font-weight: bold; }
+    td { border: 1px solid #ddd; padding: 8px; }
+    tr:nth-child(even) { background-color: #f9f9f9; }
+    a { color: #0066cc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class=\"container\">
+$HTML_OUTPUT
+</div>
+</body>
+</html>"
+    else
+        # Fallback to old conversion method for plain text
+        local processed_body=$(convert_urls_to_html_links "$body")
+        local escaped_body="$processed_body"
 
-    # Convert plain text body to HTML with monospace font for proper alignment
-    # Strategy: Temporarily replace anchor tags with placeholders, escape HTML, then restore anchors
-    local escaped_body="$processed_body"
+        # Step 1: Extract and protect anchor tags by replacing them with unique placeholders
+        local anchor_counter=0
+        declare -A anchor_map
+        while [[ "$escaped_body" =~ \<a\ href=\'([^\']+)\'[^\>]*\>([^\<]+)\</a\> ]]; do
+            full_anchor="${BASH_REMATCH[0]}"
+            href="${BASH_REMATCH[1]}"
+            text="${BASH_REMATCH[2]}"
+            placeholder="__ANCHOR_${anchor_counter}__"
+            anchor_map[$placeholder]="<a href='${href}' style='color: #0066cc; text-decoration: none;'>${text}</a>"
+            escaped_body="${escaped_body//${full_anchor}/${placeholder}}"
+            ((anchor_counter++))
+        done
 
-    # Step 1: Extract and protect anchor tags by replacing them with unique placeholders
-    local anchor_counter=0
-    declare -A anchor_map
-    while [[ "$escaped_body" =~ \<a\ href=\'([^\']+)\'[^\>]*\>([^\<]+)\</a\> ]]; do
-        full_anchor="${BASH_REMATCH[0]}"
-        href="${BASH_REMATCH[1]}"
-        text="${BASH_REMATCH[2]}"
-        placeholder="__ANCHOR_${anchor_counter}__"
-        anchor_map[$placeholder]="<a href='${href}' style='color: #0066cc; text-decoration: none;'>${text}</a>"
-        escaped_body="${escaped_body//${full_anchor}/${placeholder}}"
-        ((anchor_counter++))
-    done
+        # Step 2: Escape HTML entities in the remaining text
+        escaped_body=$(echo "$escaped_body" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
 
-    # Step 2: Escape HTML entities in the remaining text
-    escaped_body=$(echo "$escaped_body" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+        # Step 3: Restore anchor tags
+        for placeholder in "${!anchor_map[@]}"; do
+            escaped_body="${escaped_body//${placeholder}/${anchor_map[$placeholder]}}"
+        done
 
-    # Step 3: Restore anchor tags
-    for placeholder in "${!anchor_map[@]}"; do
-        escaped_body="${escaped_body//${placeholder}/${anchor_map[$placeholder]}}"
-    done
-
-    local html_body="<!DOCTYPE html>
+        html_body="<!DOCTYPE html>
 <html>
 <head>
 <meta charset=\"UTF-8\">
@@ -230,6 +254,7 @@ send_email() {
 </div>
 </body>
 </html>"
+    fi
 
     # Check if ssmtp is available
     if command -v ssmtp &> /dev/null; then
@@ -301,6 +326,7 @@ EOF
 
 # Initialize output capture variable for INFO_MODE
 INFO_OUTPUT=""
+HTML_OUTPUT=""
 
 # Print simulation mode message if dry-run is enabled
 if [ "$DRY_RUN" = true ]; then
@@ -371,6 +397,14 @@ else
     os_display_version="${major_version}.${minor_version}.${micro_version}-${build_number}-${smallfix_number}"
 fi
 
+# Temporary debug variable - override OS version for testing
+# DEBUG_OS_VERSION="7.3.2-86009"
+if [ -n "$DEBUG_OS_VERSION" ]; then
+    os_installed_version="$DEBUG_OS_VERSION"
+    os_display_version="$DEBUG_OS_VERSION"
+    [ "$DEBUG" = true ] && echo "[DEBUG] Using debug OS version: $DEBUG_OS_VERSION"
+fi
+
 # Print system information
 if [ "$INFO_MODE" = true ]; then
     msg=$(cat <<EOF
@@ -389,6 +423,20 @@ EOF
         printf "%s\n" "$msg"
     fi
     INFO_OUTPUT+="$msg"$'\n'
+
+    # Build HTML table for email
+    if [ "$EMAIL_MODE" = true ]; then
+        HTML_OUTPUT+="<h2>1. System Information</h2>"
+        HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 60%;'>Property</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 40%;'>Value</th></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Product</td><td style='border: 1px solid #ddd; padding: 4px;'>$product</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Model</td><td style='border: 1px solid #ddd; padding: 4px;'>$model</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Architecture</td><td style='border: 1px solid #ddd; padding: 4px;'>$arch</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Platform Name</td><td style='border: 1px solid #ddd; padding: 4px;'>$platform_name</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Operating System</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_name</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Version</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_display_version</td></tr>"
+        HTML_OUTPUT+="</table>"
+    fi
 else
     printf "\n"
     printf "%s\n" "System Information"
@@ -418,22 +466,29 @@ if [ "$INFO_MODE" = true ]; then
 Operating System Update Check
 =============================================
 
-$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "Operating System" "Installed" "Latest Version" "Update" "pat")
-$(printf "%-30s|%-15s|%-15s|%-6s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "--------" "--------------------")
+$(printf "%-30s | %-15s | %-15s | %-6s\n" "Operating System" "Installed" "Latest Version" "Update")
+$(printf "%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "-----------------" "-----------------" "--------")
 EOF
 )
     if [ "$EMAIL_MODE" = false ]; then
         printf "%s\n" "$msg"
     fi
     INFO_OUTPUT+="$msg"$'\n'
+
+    # Build HTML table for email
+    if [ "$EMAIL_MODE" = true ]; then
+        HTML_OUTPUT+="<h2>2. Operating System</h2>"
+        HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 40%;'>Operating System</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 20%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 20%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 20%;'>Update</th></tr>"
+    fi
 else
     printf "\n\n\n"
     printf "%s\n" "Operating System Update Check"
     printf "%s\n" "============================================="
     printf "%s\n"
     # Print header for OS update table
-    printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "Operating System" "Installed" "Latest Version" "Update" "pat"
-    printf "%-30s|%-15s|%-15s|%-6s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "--------" "--------------------"
+    printf "%-30s | %-15s | %-15s | %-6s\n" "Operating System" "Installed" "Latest Version" "Update"
+    printf "%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "-----------------" "-----------------" "--------"
 fi
 
 # Fetch the OS archive page and parse for available versions
@@ -545,11 +600,30 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
     fi
 
     if [ "$INFO_MODE" = true ]; then
-        msg=$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail" "$os_pat")
+        msg=$(printf "%-30s | %-15s | %-15s | %-6s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail")
         if [ "$EMAIL_MODE" = false ]; then
             printf "%s\n" "$msg"
         fi
         INFO_OUTPUT+="$msg"$'\n'
+
+        # Add row to HTML table for email
+        if [ "$EMAIL_MODE" = true ]; then
+            # Convert update status to icon for HTML
+            if [ "$os_update_avail" = "X" ]; then
+                update_icon="<span style='font-size: 14px;'>🔄</span>"
+                # Make latest version clickable if download URL is available
+                if [ -n "$os_url" ]; then
+                    os_latest_display="<a href='$os_url' style='color: #0066cc; text-decoration: none;'>$os_latest</a>"
+                else
+                    os_latest_display="$os_latest"
+                fi
+            else
+                update_icon="<span style='font-size: 14px; color: #51CF66;'>✅</span>"
+                os_latest_display="$os_latest"
+            fi
+            HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$os_name</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_display_version</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_latest_display</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
+            HTML_OUTPUT+="</table>"
+        fi
 
         # Add download link right after the table if update is available
         if [ "$os_update_avail" = "X" ] && [ -n "$os_url" ]; then
@@ -560,7 +634,7 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
             INFO_OUTPUT+="$msg"
         fi
     else
-        printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail" "$os_pat"
+        printf "%-30s | %-15s | %-15s | %-6s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail"
     fi
 fi
 
@@ -588,22 +662,29 @@ if [ "$INFO_MODE" = true ]; then
 Package Update Check
 =============================================
 
-$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "Package" "Installed" "Latest Version" "Update" "spk")
-$(printf "%-30s|%-15s|%-15s|%-6s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "--------" "--------------------")
+$(printf "%-30s | %-15s | %-15s | %-6s\n" "Package" "Installed" "Latest Version" "Update")
+$(printf "%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "-----------------" "-----------------" "--------")
 EOF
 )
     if [ "$EMAIL_MODE" = false ]; then
         printf "%s\n" "$msg"
     fi
     INFO_OUTPUT+="$msg"$'\n'
+
+    # Build HTML table for email
+    if [ "$EMAIL_MODE" = true ]; then
+        HTML_OUTPUT+="<h2>3. Packages</h2>"
+        HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 40%;'>Package</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 20%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 20%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 20%;'>Update</th></tr>"
+    fi
 else
     printf "\n\n\n"
     printf "Package Update Check\n"
     printf "%s\n" "============================================="
     printf "%s\n"
     # Print header for package update table
-    printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "Package" "Installed" "Latest Version" "Update" "spk"
-    printf "%-30s|%-15s|%-15s|%-6s|%-20s\n" "-------------------------------" "-----------------" "-----------------" "--------" "--------------------"
+    printf "%-30s | %-15s | %-15s | %-6s\n" "Package" "Installed" "Latest Version" "Update"
+    printf "%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "-----------------" "-----------------" "--------"
 fi
 
 # Initialize arrays to track packages with available updates:
@@ -616,8 +697,12 @@ declare -a downlaod_revisions=()
 declare -a download_links=()
 declare -a downlaod_files=()
 
+# Count total installed packages
+total_installed_packages=0
+
 # Iterate through all installed packages and check for updates
 for app in $(synopkg list --name | sort); do
+    ((total_installed_packages++))
     # Skip non-running packages if RUNNING_ONLY is enabled
     if [ "$RUNNING_ONLY" = true ]; then
         pkg_status_output=$(synopkg status "$app" 2>/dev/null)
@@ -791,11 +876,29 @@ for app in $(synopkg list --name | sort); do
         fi
     fi
     if [ "$INFO_MODE" = true ]; then
-        msg=$(printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail" "$spk")
+        msg=$(printf "%-30s | %-15s | %-15s | %-6s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail")
         if [ "$EMAIL_MODE" = false ]; then
             printf "%s\n" "$msg"
         fi
         INFO_OUTPUT+="$msg"$'\n'
+
+        # Add row to HTML table for email
+        if [ "$EMAIL_MODE" = true ]; then
+            # Convert update status to icon for HTML
+            if [ "$update_avail" = "X" ]; then
+                update_icon="<span style='font-size: 14px;'>🔄</span>"
+                # Make latest version clickable if download URL is available
+                if [ -n "$url" ]; then
+                    latest_revision_display="<a href='$url' style='color: #0066cc; text-decoration: none;'>$latest_revision</a>"
+                else
+                    latest_revision_display="$latest_revision"
+                fi
+            else
+                update_icon="<span style='font-size: 14px; color: #51CF66;'>✅</span>"
+                latest_revision_display="$latest_revision"
+            fi
+            HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$app</td><td style='border: 1px solid #ddd; padding: 4px;'>$installed_revision</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_revision_display</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
+        fi
 
         # Add download link right after the table if update is available
         if [ "$update_avail" = "X" ] && [ -n "$download_link" ]; then
@@ -806,7 +909,7 @@ for app in $(synopkg list --name | sort); do
             INFO_OUTPUT+="$msg"
         fi
     else
-        printf "%-30s | %-15s | %-15s | %-6s | %-20s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail" "$spk"
+        printf "%-30s | %-15s | %-15s | %-6s\n" "$app" "$installed_revision" "$latest_revision" "$update_avail"
 
         # Add download link right after the table if update is available
         if [ "$update_avail" = "X" ] && [ -n "$download_link" ]; then
@@ -890,16 +993,28 @@ EOF
     fi
 fi
 
+# Close HTML table for packages
+if [ "$EMAIL_MODE" = true ]; then
+    HTML_OUTPUT+="</table>"
+fi
+
 # Display total count of packages with available updates
 amount=${#download_apps[@]}
 if [ "$INFO_MODE" = true ]; then
-    msg=$(printf "\nTotal packages with updates available: %d" "$amount")
+    msg=$(printf "\nTotal installed packages: %d\nTotal packages with updates available: %d" "$total_installed_packages" "$amount")
     if [ "$EMAIL_MODE" = false ]; then
         printf "%s\n" "$msg"
     fi
     INFO_OUTPUT+="$msg"$'\n'
+
+    # Add summary to HTML
+    if [ "$EMAIL_MODE" = true ]; then
+        HTML_OUTPUT+="<p style='margin-top: 20px; font-weight: bold;'>Total installed packages: $total_installed_packages</p>"
+        HTML_OUTPUT+="<p style='font-weight: bold;'>Total packages with updates available: $amount</p>"
+    fi
 else
     printf "\n"
+    printf "Total installed packages: %d\n" "$total_installed_packages"
     printf "Total packages with updates available: %d\n" "$amount"
 fi
 
@@ -913,6 +1028,44 @@ if [ "$INFO_MODE" = true ]; then
 
         # Convert INFO_OUTPUT to plain text (interpret escape sequences)
         email_body=$(printf "%b" "$INFO_OUTPUT")
+
+        # Save HTML email to debug directory if debug mode is enabled
+        if [ "$DEBUG" = true ] && [ -n "$HTML_OUTPUT" ]; then
+            # Create debug directory if it doesn't exist
+            debug_dir="$script_dir/../debug"
+            mkdir -p "$debug_dir"
+
+            # Generate filename with timestamp
+            timestamp=$(date +"%Y%m%d_%H%M%S")
+            debug_file="$debug_dir/email_${timestamp}.html"
+
+            # Build complete HTML document
+            cat > "$debug_file" <<EOF
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; background-color: #f5f5f5; padding: 20px; }
+    .container { background-color: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h2 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 5px; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+    th { border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: left; font-weight: bold; }
+    td { border: 1px solid #ddd; padding: 8px; }
+    tr:nth-child(even) { background-color: #f9f9f9; }
+    a { color: #0066cc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+$HTML_OUTPUT
+</div>
+</body>
+</html>
+EOF
+            echo "[DEBUG] HTML email saved to: $debug_file"
+        fi
 
         # Send the email
         if send_email "$email_subject" "$email_body"; then

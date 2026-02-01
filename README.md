@@ -15,6 +15,7 @@ Options:
   -i, --info          Display system and update information only,
                       like dry-run but without download messages and interactive installation
   -e, --email         Email mode - no output to stdout, only send report via email (requires --info)
+  --email-to <email>  Override recipient email address (optional, defaults to DSM configuration)
   -r, --running       Check updates only for packages that are currently running
   --official-only     Show only official Synology packages
   --community-only    Show only community/third-party packages
@@ -36,6 +37,7 @@ Options:
    - **Clickable download links**: Version numbers become clickable links when updates are available
    - **Summary statistics**: Total installed packages and packages with updates
    - Requires email configuration in DSM (Control Panel > Notification > Email)
+   - **Optional**: Use `--email-to <email>` to override recipient without changing DSM settings
 3. **Running only** (`-r, --running`): Check updates only for packages that are currently running. Stopped packages are skipped. Useful for focusing on active services. Package count reflects only running packages when combined with this filter.
 4. **Official only** (`--official-only`): Show only official Synology packages. Community/third-party packages are filtered out. Package count shows only official packages.
 5. **Community only** (`--community-only`): Show only community/third-party packages (e.g., from SynoCommunity). Official Synology packages are filtered out. Package count shows only community packages. Cannot be used with `--official-only`.
@@ -132,6 +134,11 @@ This will:
   - Update availability tables
   - Clickable download links (shortened to show app names)
 - Requires email configuration in DSM (see [Configure E-Mail notification])
+
+**Alternative:** Override recipient email address without changing DSM settings:
+```bash
+./bin/synopkg-update-checker.sh --email --email-to your@email.com
+```
 
 [Configure E-Mail notification]: https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_notification_email?version=7
 

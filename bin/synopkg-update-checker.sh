@@ -13,6 +13,7 @@
 DRY_RUN=false
 INFO_MODE=false
 EMAIL_MODE=false
+EMAIL_TO=""
 RUNNING_ONLY=false
 VERBOSE=false
 DEBUG=false
@@ -27,6 +28,7 @@ usage() {
         -i, --info          Display system and update information only,
                             like dry-run but without download messages and interactive installation
         -e, --email         Email mode - no output to stdout, only capture to variable (requires --info)
+        --email-to <email>  Override recipient email address (optional, defaults to DSM configuration)
         -r, --running       Check updates only for packages that are currently running
         --official-only     Show only official Synology packages
         --community-only    Show only community/third-party packages
@@ -43,7 +45,7 @@ EOF
 
 # Parse the command line arguments using getopt
 filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,dry-run,running,verbose,debug,official-only,community-only,help -- "$@")
+PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,email-to:,dry-run,running,verbose,debug,official-only,community-only,help -- "$@")
 retcode=$?
 if [ $retcode != 0 ]; then
     usage
@@ -62,6 +64,8 @@ while true; do
             EMAIL_MODE=true;
             INFO_MODE=true;
             shift ;;
+        --email-to)
+            EMAIL_TO="$2"; shift 2 ;;
         -r|--running)
             RUNNING_ONLY=true; shift ;;
 
@@ -237,14 +241,63 @@ send_email() {
         smtp_from_name=$(grep "^smtp_from_name=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
         smtp_from_mail=$(grep "^smtp_from_mail=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
         subject_prefix=$(grep "^eventsubjectprefix=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+
+        # Try multiple field names for recipient
         recipient=$(grep "^eventmails=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        if [ -z "$recipient" ]; then
+            recipient=$(grep "^mail_to=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        fi
+        if [ -z "$recipient" ]; then
+            recipient=$(grep "^recipient=" /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')
+        fi
     fi
 
-    # Check if required SMTP configuration is available
-    if [ -z "$smtp_server" ] || [ -z "$smtp_port" ] || [ -z "$smtp_user" ] || [ -z "$smtp_pass" ] || [ -z "$recipient" ]; then
-        echo "Error: SMTP server or recipient not configured in DSM."
+    # Override with command line argument if provided
+    if [ -n "$EMAIL_TO" ]; then
+        recipient="$EMAIL_TO"
+        [ "$DEBUG" = true ] && echo "[DEBUG] Using command line recipient override: $recipient"
+    fi
+
+    # Debug: Show parsed configuration and dump config file if recipient is missing
+    [ "$DEBUG" = true ] && echo "[DEBUG] SMTP Configuration:"
+    [ "$DEBUG" = true ] && echo "[DEBUG]   Server: $smtp_server"
+    [ "$DEBUG" = true ] && echo "[DEBUG]   Port: $smtp_port"
+    [ "$DEBUG" = true ] && echo "[DEBUG]   Use SSL: $smtp_use_ssl"
+    [ "$DEBUG" = true ] && echo "[DEBUG]   Auth: $smtp_auth"
+    [ "$DEBUG" = true ] && echo "[DEBUG]   User: $smtp_user"
+    [ "$DEBUG" = true ] && echo "[DEBUG]   From: $smtp_from_mail"
+    [ "$DEBUG" = true ] && echo "[DEBUG]   Recipient: $recipient"
+
+    if [ "$DEBUG" = true ] && [ -z "$recipient" ]; then
+        echo "[DEBUG] Recipient is empty. Dumping /usr/syno/etc/synosmtp.conf:"
+        cat /usr/syno/etc/synosmtp.conf 2>/dev/null | grep -E "mail|recipient|to=" || echo "[DEBUG] Could not read config file"
+    fi
+
+    # Check if required SMTP configuration is available (user/pass only required if auth is enabled)
+    if [ -z "$smtp_server" ] || [ -z "$smtp_port" ]; then
+        echo "Error: SMTP server not configured in DSM."
         echo "Please configure email notifications in DSM: Control Panel > Notification > Email"
+        [ "$DEBUG" = true ] && echo "[DEBUG] Missing: server='$smtp_server' port='$smtp_port'"
         return 1
+    fi
+
+    if [ -z "$recipient" ]; then
+        echo "Error: Recipient email address not configured."
+        echo "Solution 1: Configure recipient in DSM: Control Panel > Notification > Email > Email tab"
+        echo "            Make sure to enter an email address in the 'Email' field and click 'Apply'"
+        echo "Solution 2: Use --email-to option: $filename --email --email-to your@email.com"
+        [ "$DEBUG" = true ] && echo "[DEBUG] eventmails field in config is: '$(grep '^eventmails=' /usr/syno/etc/synosmtp.conf | cut -d'=' -f2)'"
+        return 1
+    fi
+
+    # Check auth credentials only if authentication is enabled
+    if [ "$smtp_auth" = "yes" ] || [ "$smtp_auth" = "true" ]; then
+        if [ -z "$smtp_user" ] || [ -z "$smtp_pass" ]; then
+            echo "Error: SMTP authentication is enabled but credentials are missing."
+            echo "Please configure email notifications in DSM: Control Panel > Notification > Email"
+            [ "$DEBUG" = true ] && echo "[DEBUG] Missing: user='$smtp_user' pass='[hidden]'"
+            return 1
+        fi
     fi
 
     # Build From header with name if available

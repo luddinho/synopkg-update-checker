@@ -15,6 +15,7 @@ Optionen:
   -i, --info          Nur System- und Update-Informationen anzeigen,
                       wie Dry-run aber ohne Download-Meldungen und interaktive Installation
   -e, --email         E-Mail-Modus - keine Ausgabe auf stdout, nur Bericht per E-Mail senden (erfordert --info)
+  --email-to <email>  Empfänger-E-Mail-Adresse überschreiben (optional, Standard ist DSM-Konfiguration)
   -r, --running       Updates nur für Pakete prüfen, die aktuell laufen
   --official-only     Nur offizielle Synology-Pakete anzeigen
   --community-only    Nur Community-/Drittanbieter-Pakete anzeigen
@@ -36,6 +37,7 @@ Optionen:
    - **Anklickbare Download-Links**: Versionsnummern werden zu klickbaren Links, wenn Updates verfügbar sind
    - **Zusammenfassungsstatistiken**: Gesamtzahl installierter Pakete und Pakete mit Updates
    - Erfordert E-Mail-Konfiguration in DSM (Systemsteuerung > Benachrichtigung > E-Mail)
+   - **Optional**: Verwenden Sie `--email-to <email>`, um den Empfänger zu überschreiben, ohne die DSM-Einstellungen zu ändern
 3. **Nur laufende** (`-r, --running`): Prüft Updates nur für Pakete, die aktuell laufen. Gestoppte Pakete werden übersprungen. Nützlich für die Konzentration auf aktive Dienste. Paketzähler zeigt nur laufende Pakete, wenn mit diesem Filter kombiniert.
 4. **Nur offiziell** (`--official-only`): Zeigt nur offizielle Synology-Pakete. Community-/Drittanbieter-Pakete werden herausgefiltert. Paketzähler zeigt nur offizielle Pakete.
 5. **Nur Community** (`--community-only`): Zeigt nur Community-/Drittanbieter-Pakete (z.B. von SynoCommunity). Offizielle Synology-Pakete werden herausgefiltert. Paketzähler zeigt nur Community-Pakete. Kann nicht mit `--official-only` verwendet werden.
@@ -132,6 +134,11 @@ Dies wird:
   - Update-Verfügbarkeitstabellen
   - Anklickbaren Download-Links (verkürzt mit App-Namen)
 - Erfordert E-Mail-Konfiguration in DSM (siehe [Konfiguration E-Mail Benachrichtigung])
+
+**Alternative:** Empfänger-E-Mail-Adresse überschreiben, ohne DSM-Einstellungen zu ändern:
+```bash
+./bin/synopkg-update-checker.sh --email --email-to ihre@email.de
+```
 
 [Konfiguration E-Mail Benachrichtigung]: https://kb.synology.com/de-de/DSM/help/DSM/AdminCenter/system_notification_email?version=7
 

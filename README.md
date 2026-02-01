@@ -27,11 +27,19 @@ Options:
 
 ### Options
 1. **Info mode** (`-i, --info`): Display system and update information without downloading or installing. Perfect for quick checks or automated monitoring.
-2. **Email mode** (`-e, --email`): Send update report via email with clickable download links. Requires email configuration in DSM (Control Panel > Notification > Email). URLs are shortened to display OS/package names instead of full URLs.
+2. **Email mode** (`-e, --email`): Send update report via email with professional HTML formatting including:
+   - **Styled HTML tables** with color-coded headers:
+     - System Information: Green header
+     - Operating System: Light blue header
+     - Packages: Orange header
+   - **Visual indicators**: 🔄 emoji for updates available, ✅ emoji for no updates
+   - **Clickable download links**: Version numbers become clickable links when updates are available
+   - **Summary statistics**: Total installed packages and packages with updates
+   - Requires email configuration in DSM (Control Panel > Notification > Email)
 3. **Running only** (`-r, --running`): Check updates only for packages that are currently running. Stopped packages are skipped. Useful for focusing on active services.
 4. **Community repositories** (`-c, --community`): Check community repositories (like SynoCommunity) for package updates when not found on the official Synology archive. Can be specified multiple times to check multiple communities. Currently supported: `synocommunity`. Example: `-c synocommunity` or `-c synocommunity -c another_community`.
 5. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
-6. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting.
+6. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting. When combined with email mode (`-d -e`), saves a copy of the HTML email to `debug/email_YYYYMMDD_HHMMSS.html` for inspection.
 
 ### Restrictions
 Operating system updates e.g. for DSM will only reported because the command ```sudo synoupgrade --patch /path/to/file.pat``` does not work.
@@ -165,20 +173,23 @@ DSM Version                    | 7.3.2-86009
 Operating System Update Check
 =============================================
 
-Operating System               | Installed       | Latest Version       | Update Available     | pat
--------------------------------|-----------------|----------------------|----------------------|--------------------
-DSM                            | 7.3.2-86009     | 7.3.2-86009          | -                    |
+Operating System               | Installed       | Latest Version       | Update
+-------------------------------|-----------------|----------------------|--------
+DSM                            | 7.3.2-86009     | 7.3.2-86009          | -
 
 Package Update Check
 =============================================
 
-Package                        | Installed       | Latest Version       | Update Available     | spk
--------------------------------|-----------------|----------------------|----------------------|--------------------
-ActiveInsight                  | 3.0.5-24122     | 3.0.5-24122          | -                    |
-Apache2.4                      | 2.4.63-0155     | 2.4.63-0155          | -                    |
-MariaDB10                      | 10.11.11-1551   | 10.11.11-1551        | -                    |
-SynologyDrive                  | 4.0.2-27889     | 4.0.2-27889          | -                    |
-SynologyPhotos                 | 1.8.2-10090     | 1.8.2-10090          | -                    |
+Package                        | Installed       | Latest Version       | Update
+-------------------------------|-----------------|----------------------|--------
+ActiveInsight                  | 3.0.5-24122     | 3.0.5-24122          | -
+Apache2.4                      | 2.4.63-0155     | 2.4.63-0155          | -
+MariaDB10                      | 10.11.11-1551   | 10.11.11-1551        | -
+SynologyDrive                  | 4.0.2-27889     | 4.0.2-27889          | -
+SynologyPhotos                 | 1.8.2-10090     | 1.8.2-10090          | -
+
+Total installed packages: 5
+Total packages with updates available: 0
 
 No packages to update. Exiting.
 ```
@@ -198,18 +209,18 @@ DSM Version                    | 7.3.2-86009
 Operating System Update Check
 =============================================
 
-Operating System               | Installed       | Latest Version       | Update Available     | pat
--------------------------------|-----------------|----------------------|----------------------|--------------------
-DSM                            | 7.3.2-86009     | 7.3.2-86009          | -                    |
+Operating System               | Installed       | Latest Version       | Update
+-------------------------------|-----------------|----------------------|--------
+DSM                            | 7.3.2-86009     | 7.3.2-86009          | -
 
 Package Update Check
 =============================================
 
-Package                        | Installed       | Latest Version       | Update Available     | spk
--------------------------------|-----------------|----------------------|----------------------|--------------------
-MariaDB10                      | 10.11.11-1551   | 10.11.12-1552        | X                    | MariaDB10-x86_64-10.11.12-1552.spk
-SynologyDrive                  | 4.0.2-27889     | 4.0.3-27900          | X                    | SynologyDrive-x86_64-4.0.3-27900.spk
-SynologyPhotos                 | 1.8.2-10090     | 1.8.2-10090          | -                    |
+Package                        | Installed       | Latest Version       | Update
+-------------------------------|-----------------|----------------------|--------
+MariaDB10                      | 10.11.11-1551   | 10.11.12-1552        | X
+SynologyDrive                  | 4.0.2-27889     | 4.0.3-27900          | X
+SynologyPhotos                 | 1.8.2-10090     | 1.8.2-10090          | -
 
 Download Links for Available Updates:
 =============================================
@@ -232,6 +243,7 @@ Package: SynologyDrive
 File: SynologyDrive-x86_64-4.0.3-27900.spk
 Path: /path/to/downloads/packages/SynologyDrive-x86_64-4.0.3-27900.spk
 
+Total installed packages: 5
 Total packages with updates available: 2
 
 Select packages to update:
@@ -283,6 +295,9 @@ All packages processed. Exiting.
 ```
 downloads/
 └── packages/    # Package .spk files
+
+debug/           # HTML email debug files (when using -d -e flags)
+└── email_YYYYMMDD_HHMMSS.html
 ```
 
 **Note:** OS update files (`.pat`) are not downloaded due to installation restrictions.

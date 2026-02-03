@@ -904,7 +904,7 @@ total_installed_packages=0
 total_running_packages=0
 
 # Iterate through all installed packages and check for updates
-for app in $(synopkg list --name | sort); do
+for app in $(synopkg list --name | LC_ALL=C sort -f); do
     # Get package maintainer/source
     pkg_distributor=$(get_package_distributor "$app")
     [ "$DEBUG" = true ] && echo "[DEBUG] Package: $app, Maintainer: $pkg_distributor"

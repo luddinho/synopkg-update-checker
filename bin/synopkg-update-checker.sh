@@ -547,13 +547,16 @@ if [ "$INFO_MODE" = true ]; then
     msg=$(cat <<EOF
 
 System Information
-=============================================
-$(printf "%-30s | %s\n" "Product" "$product")
-$(printf "%-30s | %s\n" "Model" "$model")
-$(printf "%-30s | %s\n" "Architecture" "$arch")
-$(printf "%-30s | %s\n" "Platform Name" "$platform_name")
-$(printf "%-30s | %s\n" "Operating System" "$os_name")
-$(printf "%-30s | %s\n" "Version" "$os_display_version")
+=============================================================================================================
+
+$(printf "%-63s | %s\n" "Property" "Value")
+$(printf "%-63s|%s\n" "----------------------------------------------------------------" "-------------------")
+$(printf "%-63s | %s\n" "Product" "$product")
+$(printf "%-63s | %s\n" "Model" "$model")
+$(printf "%-63s | %s\n" "Architecture" "$arch")
+$(printf "%-63s | %s\n" "Platform Name" "$platform_name")
+$(printf "%-63s | %s\n" "Operating System" "$os_name")
+$(printf "%-63s | %s\n" "Version" "$os_display_version")
 EOF
 )
     if [ "$EMAIL_MODE" = false ]; then
@@ -565,7 +568,7 @@ EOF
     if [ "$EMAIL_MODE" = true ]; then
         HTML_OUTPUT+="<h2>1. System Information</h2>"
         HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
-        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 46%;'>Property</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 54%;'>Value</th></tr>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 48%;'>Property</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 52%;'>Value</th></tr>"
         HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Product</td><td style='border: 1px solid #ddd; padding: 4px;'>$product</td></tr>"
         HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Model</td><td style='border: 1px solid #ddd; padding: 4px;'>$model</td></tr>"
         HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Architecture</td><td style='border: 1px solid #ddd; padding: 4px;'>$arch</td></tr>"
@@ -577,13 +580,16 @@ EOF
 else
     printf "\n"
     printf "%s\n" "System Information"
-    printf "%s\n" "============================================="
-    printf "%-30s | %s\n" "Product" "$product"
-    printf "%-30s | %s\n" "Model" "$model"
-    printf "%-30s | %s\n" "Architecture" "$arch"
-    printf "%-30s | %s\n" "Platform Name" "$platform_name"
-    printf "%-30s | %s\n" "Operating System" "$os_name"
-    printf "%-30s | %s\n" "Version" "$os_display_version"
+    printf "%s\n" "============================================================================================================="
+    printf "\n"
+    printf "%-63s | %s\n" "Property" "Value"
+    printf "%-63s|%s\n" "----------------------------------------------------------------" "-------------------"
+    printf "%-63s | %s\n" "Product" "$product"
+    printf "%-63s | %s\n" "Model" "$model"
+    printf "%-63s | %s\n" "Architecture" "$arch"
+    printf "%-63s | %s\n" "Platform Name" "$platform_name"
+    printf "%-63s | %s\n" "Operating System" "$os_name"
+    printf "%-63s | %s\n" "Version" "$os_display_version"
 fi
 
 #-----------------------------------------------------------------------------
@@ -602,10 +608,10 @@ if [ "$INFO_MODE" = true ]; then
 
 
 Operating System Update Check
-=============================================
+=============================================================================================================
 
-$(printf "%-30s | %-15s | %-15s | %-6s\n" "Operating System" "Installed" "Latest Version" "Update")
-$(printf "%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "-----------------" "-----------------" "--------")
+$(printf "%-63s | %-15s | %-15s | %-6s\n" "Operating System" "Installed" "Latest" "Update")
+$(printf "%-63s|%-15s|%-15s|%-6s\n" "----------------------------------------------------------------" "-----------------" "-----------------" "--------")
 EOF
 )
     if [ "$EMAIL_MODE" = false ]; then
@@ -617,16 +623,16 @@ EOF
     if [ "$EMAIL_MODE" = true ]; then
         HTML_OUTPUT+="<h2>2. Operating System</h2>"
         HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
-        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 46%;'>Operating System</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 18%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 18%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 18%;'>Update</th></tr>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 48%;'>Operating System</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 18%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 16%;'>Latest</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #ADD8E6; text-align: left; width: 18%;'>Update</th></tr>"
     fi
 else
     printf "\n\n\n"
     printf "%s\n" "Operating System Update Check"
-    printf "%s\n" "============================================="
+    printf "%s\n" "============================================================================================================="
     printf "%s\n"
     # Print header for OS update table
-    printf "%-30s | %-15s | %-15s | %-6s\n" "Operating System" "Installed" "Latest Version" "Update"
-    printf "%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "-----------------" "-----------------" "--------"
+    printf "%-63s | %-15s | %-15s | %-6s\n" "Operating System" "Installed" "Latest" "Update"
+    printf "%-63s|%-15s|%-15s|%-6s\n" "----------------------------------------------------------------" "-----------------" "-----------------" "--------"
 fi
 
 # Fetch the OS archive page and parse for available versions
@@ -640,7 +646,7 @@ os_update_avail="-"
 os_pat=""
 
 if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_name/"; then
-    all_os_versions=$(echo "$os_archive_html" | grep -o 'href="/download/Os/'$os_name'/[^"]*"' | sed 's|href="/download/Os/'$os_name'/||;s|"||' | sort -V -r)
+    all_os_versions=$(echo "$os_archive_html" | sed -n 's|.*href="/download/Os/'$os_name'/\([0-9][0-9.+-]*\)".*|\1|p' | sort -V -r)
 
     # Normalize installed version for comparison (add -0 if missing smallfix)
     os_installed_version_normalized="$os_installed_version"
@@ -738,7 +744,7 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
     fi
 
     if [ "$INFO_MODE" = true ]; then
-        msg=$(printf "%-30s | %-15s | %-15s | %-6s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail")
+        msg=$(printf "%-63s | %-15s | %-15s | %-6s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail")
         if [ "$EMAIL_MODE" = false ]; then
             printf "%s\n" "$msg"
         fi
@@ -765,23 +771,42 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
 
         # Add download link right after the table if update is available
         if [ "$os_update_avail" = "X" ] && [ -n "$os_url" ]; then
+            msg=$(printf "\n*** OPERATING SYSTEM UPDATE AVAILABLE ***\n")
+            if [ "$EMAIL_MODE" = false ]; then
+                printf "%s" "$msg"
+            fi
+            INFO_OUTPUT+="$msg"$'\n'
+            if [ "$EMAIL_MODE" = true ]; then
+                HTML_OUTPUT+="<p style='margin-top: 10px; font-weight: bold; color: #FF0000; font-size: 16px;'>⚠️ OPERATING SYSTEM UPDATE AVAILABLE</p>"
+            fi
             msg=$(printf "\nDownload Link: %s\n" "$os_url")
             if [ "$EMAIL_MODE" = false ]; then
                 printf "%s" "$msg"
             fi
-            INFO_OUTPUT+="$msg"
+            INFO_OUTPUT+="$msg"$'\n'
+        else
+            # No OS update available
+            msg=$(printf "\nNo operating system updates available. System is up to date.\n")
+            if [ "$EMAIL_MODE" = false ]; then
+                printf "%s" "$msg"
+            fi
+            INFO_OUTPUT+="$msg"$'\n'
+            if [ "$EMAIL_MODE" = true ]; then
+                HTML_OUTPUT+="<p style='margin-top: 10px; font-weight: bold; color: #228B22;'>✅ No operating system updates available. System is up to date.</p>"
+            fi
         fi
     else
-        printf "%-30s | %-15s | %-15s | %-6s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail"
+        printf "%-63s | %-15s | %-15s | %-6s\n" "$os_name" "$os_display_version" "$os_latest" "$os_update_avail"
+        # Add download link or status message right after the table row
+        if [ "$os_update_avail" = "X" ] && [ -n "$os_url" ]; then
+            printf "\n*** OPERATING SYSTEM UPDATE AVAILABLE ***\n"
+            printf "\nDownload Link: %s\n" "$os_url"
+        else
+            printf "\nNo operating system updates available. System is up to date.\n"
+        fi
     fi
 fi
 
-# Add download link right after the table if update is available (only for non-INFO_MODE)
-if [ "$os_update_avail" = "X" ] && [ -n "$os_url" ]; then
-    if [ "$INFO_MODE" = false ]; then
-        printf "\nDownload Link: %s\n" "$os_url"
-    fi
-fi
 fi  # End of OS_ONLY check
 
 #-----------------------------------------------------------------------------
@@ -800,9 +825,9 @@ if [ "$INFO_MODE" = true ]; then
 
 
 Package Update Check
-=============================================
+=============================================================================================================
 
-$(printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "Package" "Source" "Installed" "Latest Version" "Update")
+$(printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "Package" "Source" "Installed" "Latest" "Update")
 $(printf "%-30s|%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "--------------------------------" "-----------------" "-----------------" "--------")
 EOF
 )
@@ -821,15 +846,15 @@ EOF
         fi
         HTML_OUTPUT+="<h2>${chapter_num}. Packages</h2>"
         HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
-        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 31%;'>Package</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 15%;'>Source</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Latest Version</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Update</th></tr>"
+        HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 31%;'>Package</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 17%;'>Source</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Installed</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 16%;'>Latest</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #FFA500; text-align: left; width: 18%;'>Update</th></tr>"
     fi
 else
     printf "\n\n\n"
     printf "Package Update Check\n"
-    printf "%s\n" "============================================="
+    printf "%s\n" "============================================================================================================="
     printf "%s\n"
     # Print header for package update table
-    printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "Package" "Source" "Installed" "Latest Version" "Update"
+    printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "Package" "Source" "Installed" "Latest" "Update"
     printf "%-30s|%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "--------------------------------" "-----------------" "-----------------" "--------"
 fi
 
@@ -906,39 +931,57 @@ for app in $(synopkg list --name | sort); do
 
     if [ -n "$archive_html" ] && echo "$archive_html" | grep -q "href=\"/download/Package/$app/"; then
         # Extract all version folders, sort numerically descending (latest first)
-        all_versions=$(echo "$archive_html" | grep -o 'href="/download/Package/'$app'/[^"]*"' | sed 's|href="/download/Package/'$app'/||;s|"||' | sort -V -r)
+        all_versions=$(echo "$archive_html" | sed -n 's|.*href="/download/Package/'$app'/\([0-9][0-9.+-]*\)".*|\1|p' | sort -V -r)
         found=""
         for version in $all_versions; do
+            [ "$DEBUG" = true ] && echo "[DEBUG] Checking version: $version (installed: $installed_revision)"
+
             # Check if version is newer than current installed_revision
             if [[ "$version" != "$installed_revision" ]] && [[ $(printf '%s\n%s' "$installed_revision" "$version" | sort -V | head -1) == "$installed_revision" ]]; then
+                [ "$DEBUG" = true ] && echo "[DEBUG] Version $version is newer than $installed_revision"
+
                 # Check if there's an SPK for the current architecture and OS
                 version_url="https://archive.synology.com/download/Package/$app/$version"
                 version_html=$(curl -s "$version_url")
+
+                [ "$DEBUG" = true ] && echo "[DEBUG] Looking for SPK with arch=$arch OR platform=$platform_name"
+
                 if [ "$os_name" = "BSM" ]; then
-                    if echo "$version_html" | grep -q "BSM.*$arch.*\.spk"; then
+                    if echo "$version_html" | grep -qiE "BSM.*(${arch}|${platform_name}).*\.spk"; then
                         latest_revision="$version"
-                        # grep the name of the spk file
-                        spk=$(echo "$version_html" | grep -o "[^/]*BSM[^/]*$arch[^\"']*\.spk" | head -1 | sed 's/.*">//;s/".*$//')
-                        url=$(echo "$version_html" | grep -o "href=\"[^\"']*/download/Package/spk/[^\"']*BSM[^\"']*$arch[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
+                        # grep the name of the spk file - check both arch and platform
+                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*BSM[^/\"']*(${arch}|${platform_name})[^\"']*\.spk" | head -1)
+                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*BSM[^\"']*(${arch}|${platform_name})[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
                         download_apps+=("$app")
                         downlaod_revisions+=("$latest_revision")
                         download_links+=("$url")
                         update_avail="X"
                         found="yes"
+                        [ "$DEBUG" = true ] && echo "[DEBUG] Found BSM SPK: $spk"
                         break
                     fi
                 else
-                    if echo "$version_html" | grep -q "$arch.*\.spk" && ! echo "$version_html" | grep -q "BSM"; then
+                    # Check for DSM packages - look for arch OR platform_name, but exclude BSM
+                    if echo "$version_html" | grep -qiE "(${arch}|${platform_name}).*\.spk" && ! echo "$version_html" | grep -q "BSM"; then
                         latest_revision="$version"
-                        # grep the name of the spk file
-                        spk=$(echo "$version_html" | grep -o "[^/]*$arch[^\"']*\.spk" | head -1 | sed 's/.*">//;s/".*$//')
-                        url=$(echo "$version_html" | grep -o "href=\"[^\"']*/download/Package/spk/[^\"']*$arch[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
+                        # grep the name of the spk file - check both arch and platform
+                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*[-](${arch}|${platform_name})[-][^\"']*\.spk" | head -1)
+                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*(${arch}|${platform_name})[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
+
+                        # If URL is found, prepend domain if relative
+                        if [ -n "$url" ] && [[ "$url" =~ ^/ ]]; then
+                            url="https://archive.synology.com${url}"
+                        fi
+
                         download_apps+=("$app")
                         downlaod_revisions+=("$latest_revision")
                         download_links+=("$url")
                         update_avail="X"
                         found="yes"
+                        [ "$DEBUG" = true ] && echo "[DEBUG] Found DSM SPK: $spk (URL: $url)"
                         break
+                    else
+                        [ "$DEBUG" = true ] && echo "[DEBUG] No SPK found for arch=$arch or platform=$platform_name in version $version"
                     fi
                 fi
             fi
@@ -1171,7 +1214,7 @@ EOF
             filePath="$(realpath "$download_dir_pkg/$spk_name")"
             downlaod_files+=("$filePath")
             if [ "$DRY_RUN" = true ]; then
-                printf "Dry run mode: Skipping download of %s\n" $(basename "$url")
+                printf "[DRY RUN MODE] Skipping download of %s\n" $(basename "$url")
             else
                 printf "\n"
                 printf "Downloading %s...\n"
@@ -1189,13 +1232,52 @@ if [ "$EMAIL_MODE" = true ]; then
     HTML_OUTPUT+="</table>"
 fi
 
+# Display status message after package table
+if [ ${#download_apps[@]} -gt 0 ]; then
+    # Updates available
+    if [ "$INFO_MODE" = true ]; then
+        msg=$(printf "\n*** PACKAGE UPDATES AVAILABLE ***\n")
+        if [ "$EMAIL_MODE" = false ]; then
+            printf "%s" "$msg"
+        fi
+        INFO_OUTPUT+="$msg"$'\n'
+        if [ "$EMAIL_MODE" = true ]; then
+            HTML_OUTPUT+="<p style='margin-top: 10px; font-weight: bold; color: #FF0000; font-size: 16px;'>⚠️ PACKAGE UPDATES AVAILABLE</p>"
+        fi
+    else
+        printf "\n*** PACKAGE UPDATES AVAILABLE ***\n"
+    fi
+elif [ ${#download_apps[@]} -eq 0 ]; then
+    if [ "$INFO_MODE" = true ]; then
+        # No package updates available
+        msg=$(printf "\nNo package updates available. All packages are up to date.\n")
+        if [ "$EMAIL_MODE" = false ]; then
+            printf "%s" "$msg"
+        fi
+        INFO_OUTPUT+="$msg"$'\n'
+        if [ "$EMAIL_MODE" = true ]; then
+            HTML_OUTPUT+="<p style='margin-top: 10px; font-weight: bold; color: #228B22;'>✅ No package updates available. All packages are up to date.</p>"
+        fi
+    else
+        printf "\nNo package updates available. All packages are up to date.\n"
+    fi
+fi
+
 # Display total count of packages with available updates
 amount=${#download_apps[@]}
 if [ "$INFO_MODE" = true ]; then
     if [ "$RUNNING_ONLY" = true ]; then
-        msg=$(printf "\nTotal installed packages: %d\nTotal running packages: %d\nTotal packages with updates available: %d" "$total_installed_packages" "$total_running_packages" "$amount")
+        if [ "$amount" -eq 0 ]; then
+            msg=$(printf "\nTotal running packages: %d" "$total_running_packages")
+        else
+            msg=$(printf "\nTotal running packages: %d\nTotal packages with updates available: %d" "$total_running_packages" "$amount")
+        fi
     else
-        msg=$(printf "\nTotal installed packages: %d\nTotal packages with updates available: %d" "$total_installed_packages" "$amount")
+        if [ "$amount" -eq 0 ]; then
+            msg=$(printf "\nTotal installed packages: %d" "$total_installed_packages")
+        else
+            msg=$(printf "\nTotal installed packages: %d\nTotal packages with updates available: %d" "$total_installed_packages" "$amount")
+        fi
     fi
     if [ "$EMAIL_MODE" = false ]; then
         printf "%s\n" "$msg"
@@ -1204,25 +1286,35 @@ if [ "$INFO_MODE" = true ]; then
 
     # Add summary to HTML
     if [ "$EMAIL_MODE" = true ]; then
-        HTML_OUTPUT+="<p style='margin-top: 20px; font-weight: bold;'>Total installed packages: $total_installed_packages</p>"
         if [ "$RUNNING_ONLY" = true ]; then
-            HTML_OUTPUT+="<p style='font-weight: bold;'>Total running packages: $total_running_packages</p>"
+            HTML_OUTPUT+="<p style='margin-top: 20px; font-weight: bold;'>Total running packages: $total_running_packages</p>"
+        else
+            HTML_OUTPUT+="<p style='margin-top: 20px; font-weight: bold;'>Total installed packages: $total_installed_packages</p>"
         fi
-        HTML_OUTPUT+="<p style='font-weight: bold;'>Total packages with updates available: $amount</p>"
+        if [ "$amount" -gt 0 ]; then
+            HTML_OUTPUT+="<p style='font-weight: bold;'>Total packages with updates available: $amount</p>"
+        fi
     fi
 else
     printf "\n"
-    printf "Total installed packages: %d\n" "$total_installed_packages"
     if [ "$RUNNING_ONLY" = true ]; then
         printf "Total running packages: %d\n" "$total_running_packages"
+    else
+        printf "Total installed packages: %d\n" "$total_installed_packages"
     fi
-    printf "Total packages with updates available: %d\n" "$amount"
+    if [ "$amount" -gt 0 ]; then
+        printf "Total packages with updates available: %d\n" "$amount"
+    fi
 fi
 
 fi  # End of PACKAGES_ONLY check
 
 # Exit if in info mode
 if [ "$INFO_MODE" = true ]; then
+    # Ensure proper termination with newline for non-email mode
+    if [ "$EMAIL_MODE" = false ]; then
+        printf "\n"
+    fi
     # Send email if EMAIL_MODE is enabled
     if [ "$EMAIL_MODE" = true ]; then
         # Extract hostname for subject line
@@ -1291,8 +1383,12 @@ fi
 # Package arrays are updated as installations complete
 #-----------------------------------------------------------------------------
 if [ ${#download_apps[@]} -eq 0 ]; then
-    printf "\n\n"
-    printf "No packages to update. Exiting.\n"
+    # Only print message if not in OS_ONLY mode (message already shown after OS table)
+    # and not in INFO_MODE (message already shown after package table)
+    if [ "$INFO_MODE" = false ] && [ "$OS_ONLY" = false ]; then
+        printf "\n\n"
+        printf "No packages to update. Exiting.\n"
+    fi
     exit 0
 fi
 
@@ -1328,7 +1424,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                             printf "\n"
                             printf "Package to update: %s\n" "${download_apps[$index]}"
                             if [ "$DRY_RUN" = true ]; then
-                                printf "Dry run mode: Skipping installation of %s\n" $(basename "$selected_file")
+                                printf "[DRY RUN MODE] Skipping installation of %s\n" $(basename "$selected_file")
                             else
                                 app_name="${download_apps[$index]}"
                                 # Store previous status before installation
@@ -1385,7 +1481,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                         read -p "Are you sure you want to update this package? (y/n): " confirm
                         if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
                             if [ "$DRY_RUN" = true ]; then
-                                printf "Dry run mode: Skipping installation of %s\n" $(basename "$selected_file")
+                                printf "[DRY RUN MODE] Skipping installation of %s\n" $(basename "$selected_file")
                             else
                                 app_name="${download_apps[$index]}"
                                 # Store previous status before installation

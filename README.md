@@ -35,8 +35,9 @@ Options:
      - Operating System: Light blue header
      - Packages: Orange header
    - **Package source badges**: 🏢 OFFICIAL (blue) or 👥 COMMUNITY (purple) with source name
-   - **Visual indicators**: 🔄 emoji for updates available, ✅ emoji for no updates
-   - **Clickable download links**: Version numbers become clickable links when updates are available
+   - **Visual indicators**: 🔄 emoji for updates available, ✅ emoji for no updates   - **Status messages with color coding**:
+     - Dark green (#228B22) with ✅ emoji when no updates available
+     - Red (#FF0000) with ⚠️ emoji when updates are available   - **Clickable download links**: Version numbers become clickable links when updates are available
    - **Summary statistics**: Total installed packages and packages with updates
    - Requires email configuration in DSM (Control Panel > Notification > Email)
    - **Optional**: Use `--email-to <email>` to override recipient without changing DSM settings
@@ -183,24 +184,26 @@ Enables detailed debug output showing:
 ./bin/synopkg-update-checker.sh
 
 System Information
-=============================================
-Product                        | DiskStation
-Model                          | DS1817+
-Architecture                   | x86_64
-Operating System               | DSM
-DSM Version                    | 7.3.2-86009
+=============================================================================================================
+Product                                                         | DiskStation
+Model                                                           | DS1817+
+Architecture                                                    | x86_64
+Operating System                                                | DSM
+DSM Version                                                     | 7.3.2-86009
 
 Operating System Update Check
-=============================================
+=============================================================================================================
 
-Operating System               | Installed       | Latest Version       | Update
--------------------------------|-----------------|----------------------|--------
-DSM                            | 7.3.2-86009     | 7.3.2-86009          | -
+Operating System                                                | Installed       | Latest          | Update
+----------------------------------------------------------------|-----------------|-----------------|--------
+DSM                                                             | 7.3.2-86009     | 7.3.2-86009     | -
+
+No operating system updates available. System is up to date.
 
 Package Update Check
-=============================================
+=============================================================================================================
 
-Package                        | Source                         | Installed       | Latest Version  | Update
+Package                        | Source                         | Installed       | Latest          | Update
 -------------------------------|--------------------------------|-----------------|-----------------|--------
 ActiveInsight                  | Synology Inc.                  | 3.0.5-24122     | 3.0.5-24122     | -
 Apache2.4                      | Synology Inc.                  | 2.4.63-0155     | 2.4.63-0155     | -
@@ -208,8 +211,9 @@ MariaDB10                      | Synology Inc.                  | 10.11.11-1551 
 SynologyDrive                  | Synology Inc.                  | 4.0.2-27889     | 4.0.2-27889     | -
 SynologyPhotos                 | Synology Inc.                  | 1.8.2-10090     | 1.8.2-10090     | -
 
+No package updates available. All packages are up to date.
+
 Total installed packages: 5
-Total packages with updates available: 0
 
 No packages to update. Exiting.
 ```
@@ -219,31 +223,35 @@ No packages to update. Exiting.
 ./bin/synopkg-update-checker.sh
 
 System Information
-=============================================
-Product                        | DiskStation
-Model                          | DS1817+
-Architecture                   | x86_64
-Operating System               | DSM
-DSM Version                    | 7.3.2-86009
+=============================================================================================================
+Product                                                         | DiskStation
+Model                                                           | DS1817+
+Architecture                                                    | x86_64
+Operating System                                                | DSM
+DSM Version                                                     | 7.3.2-86009
 
 Operating System Update Check
-=============================================
+=============================================================================================================
 
-Operating System               | Installed       | Latest Version       | Update
--------------------------------|-----------------|----------------------|--------
-DSM                            | 7.3.2-86009     | 7.3.2-86009          | -
+Operating System                                                | Installed       | Latest          | Update
+----------------------------------------------------------------|-----------------|-----------------|--------
+DSM                                                             | 7.3.2-86009     | 7.3.2-86009     | -
+
+No operating system updates available. System is up to date.
 
 Package Update Check
-=============================================
+=============================================================================================================
 
-Package                        | Source                         | Installed       | Latest Version  | Update
+Package                        | Source                         | Installed       | Latest          | Update
 -------------------------------|--------------------------------|-----------------|-----------------|--------
 MariaDB10                      | Synology Inc.                  | 10.11.11-1551   | 10.11.12-1552   | X
 SynologyDrive                  | Synology Inc.                  | 4.0.2-27889     | 4.0.3-27900     | X
 SynologyPhotos                 | Synology Inc.                  | 1.8.2-10090     | 1.8.2-10090     | -
 
+*** PACKAGE UPDATES AVAILABLE ***
+
 Download Links for Available Updates:
-=============================================
+=============================================================================================================
 
 Application                    | Version         | URL
 ------------------------------ | --------------- | --------------------------------------------------
@@ -251,7 +259,7 @@ MariaDB10                      | 10.11.12-1552   | https://archive.synology.com/
 SynologyDrive                  | 4.0.3-27900     | https://archive.synology.com/download/Package/spk/SynologyDrive-x86_64-4.0.3-27900.spk
 
 Downloading updateable packages
-=============================================
+=============================================================================================================
 
 Downloading MariaDB10-x86_64-10.11.12-1552.spk...
 Package: MariaDB10

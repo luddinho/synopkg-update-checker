@@ -22,6 +22,10 @@ COMMUNITY_ONLY=false
 OS_ONLY=false
 PACKAGES_ONLY=false
 
+#-----------------------------------------------------------------------------
+# USAGE FUNCTION
+# Display help message for script usage and options
+#-----------------------------------------------------------------------------
 usage() {
     cat <<EOF
     Usage: $filename [options]
@@ -47,83 +51,8 @@ usage() {
 EOF
 }
 
-# Parse the command line arguments using getopt
-filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,email-to:,dry-run,running,verbose,debug,official-only,community-only,os-only,packages-only,help -- "$@")
-retcode=$?
-if [ $retcode != 0 ]; then
-    usage
-    exit 1
-fi
-# Extract the options and their arguments into variables
-eval set -- "$PARSED_OPTIONS"
-# Handle the options and arguments
-while true; do
-    case "$1" in
-        # optional arguments
-        -i|--info)
-            INFO_MODE=true; shift ;;
-
-        -e|--email)
-            EMAIL_MODE=true;
-            INFO_MODE=true;
-            shift ;;
-        --email-to)
-            EMAIL_TO="$2"; shift 2 ;;
-        -r|--running)
-            RUNNING_ONLY=true; shift ;;
-
-        --official-only)
-            OFFICIAL_ONLY=true; shift ;;
-
-        --community-only)
-            COMMUNITY_ONLY=true; shift ;;
-
-        --os-only)
-            OS_ONLY=true; shift ;;
-
-        --packages-only)
-            PACKAGES_ONLY=true; shift ;;
-
-        -n|--dry-run)
-            DRY_RUN=true; shift ;;
-
-        -v|--verbose)
-            VERBOSE=true; shift ;;
-
-        -d|--debug)
-            DEBUG=true; shift ;;
-
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        # End of options
-        --)
-            shift
-            break ;;
-        # Default
-        *)
-            break ;;
-    esac
-done
-
-# Validate that both filter options are not used together
-if [ "$OFFICIAL_ONLY" = true ] && [ "$COMMUNITY_ONLY" = true ]; then
-    echo "Error: Cannot use --official-only and --community-only together"
-    usage
-    exit 1
-fi
-
-# Validate that both OS and package filter options are not used together
-if [ "$OS_ONLY" = true ] && [ "$PACKAGES_ONLY" = true ]; then
-    echo "Error: Cannot use --os-only and --packages-only together"
-    usage
-    exit 1
-fi
-
 #-----------------------------------------------------------------------------
-# GET PACKAGE MAINTAINER
+# Function get_package_distributor()
 # Extract distributor or maintainer information from package INFO file
 # Returns: distributor (if present) or maintainer name, or "Unknown" if not found
 #-----------------------------------------------------------------------------
@@ -152,7 +81,7 @@ get_package_distributor() {
 }
 
 #-----------------------------------------------------------------------------
-# CHECK IF PACKAGE IS OFFICIAL
+# Function is_official_package()
 # Determine if a package is from Synology based on distributor field
 # Community packages have a distributor field, official Synology packages don't
 # Returns: 0 (true) if official, 1 (false) if community/third-party
@@ -181,7 +110,7 @@ is_official_package() {
 }
 
 #-----------------------------------------------------------------------------
-# CONVERT URLS TO HTML LINKS
+# Function convert_urls_to_html_links()
 # Convert plain text URLs to HTML anchor tags with application names
 # Used in email mode to create clickable, shortened links
 #-----------------------------------------------------------------------------
@@ -461,11 +390,99 @@ EOF
     fi
 }
 
+#-----------------------------------------------------------------------------
+# Parse the command line arguments using getopt
+#-----------------------------------------------------------------------------
+filename=$(basename "$0")
+PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,email-to:,dry-run,running,verbose,debug,official-only,community-only,os-only,packages-only,help -- "$@")
+retcode=$?
+if [ $retcode != 0 ]; then
+    usage
+    exit 1
+fi
+
+#-----------------------------------------------------------------------------
+# Extract the options and their arguments into variables
+#-----------------------------------------------------------------------------
+eval set -- "$PARSED_OPTIONS"
+# Handle the options and arguments
+while true; do
+    case "$1" in
+        # optional arguments
+        -i|--info)
+            INFO_MODE=true; shift ;;
+
+        -e|--email)
+            EMAIL_MODE=true;
+            INFO_MODE=true;
+            shift ;;
+        --email-to)
+            EMAIL_TO="$2"; shift 2 ;;
+        -r|--running)
+            RUNNING_ONLY=true; shift ;;
+
+        --official-only)
+            OFFICIAL_ONLY=true; shift ;;
+
+        --community-only)
+            COMMUNITY_ONLY=true; shift ;;
+
+        --os-only)
+            OS_ONLY=true; shift ;;
+
+        --packages-only)
+            PACKAGES_ONLY=true; shift ;;
+
+        -n|--dry-run)
+            DRY_RUN=true; shift ;;
+
+        -v|--verbose)
+            VERBOSE=true; shift ;;
+
+        -d|--debug)
+            DEBUG=true; shift ;;
+
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        # End of options
+        --)
+            shift
+            break ;;
+        # Default
+        *)
+            break ;;
+    esac
+done
+
+#-----------------------------------------------------------------------------
+# Validate that both filter options are not used together
+#-----------------------------------------------------------------------------
+if [ "$OFFICIAL_ONLY" = true ] && [ "$COMMUNITY_ONLY" = true ]; then
+    echo "Error: Cannot use --official-only and --community-only together"
+    usage
+    exit 1
+fi
+
+#-----------------------------------------------------------------------------
+# Validate that both OS and package filter options are not used together
+#-----------------------------------------------------------------------------
+if [ "$OS_ONLY" = true ] && [ "$PACKAGES_ONLY" = true ]; then
+    echo "Error: Cannot use --os-only and --packages-only together"
+    usage
+    exit 1
+fi
+
+#-----------------------------------------------------------------------------
 # Initialize output capture variable for INFO_MODE
+#-----------------------------------------------------------------------------
 INFO_OUTPUT=""
 HTML_OUTPUT=""
 
+#-----------------------------------------------------------------------------
 # Print simulation mode message if dry-run is enabled
+#-----------------------------------------------------------------------------
 if [ "$DRY_RUN" = true ]; then
     printf "\n[SIMULATION MODE] Running in dry-run mode. No changes will be made.\n\n"
 fi
@@ -542,7 +559,9 @@ if [ -n "$DEBUG_OS_VERSION" ]; then
     [ "$DEBUG" = true ] && echo "[DEBUG] Using debug OS version: $DEBUG_OS_VERSION"
 fi
 
+#-----------------------------------------------------------------------------
 # Print system information
+#-----------------------------------------------------------------------------
 if [ "$INFO_MODE" = true ]; then
     msg=$(cat <<EOF
 
@@ -635,16 +654,23 @@ else
     printf "%-63s|%-15s|%-15s|%-6s\n" "----------------------------------------------------------------" "-----------------" "-----------------" "--------"
 fi
 
+#-----------------------------------------------------------------------------
 # Fetch the OS archive page and parse for available versions
+#-----------------------------------------------------------------------------
 os_archive_url="https://archive.synology.com/download/Os/$os_name"
 os_archive_html=$(curl -s "$os_archive_url")
 
+#-----------------------------------------------------------------------------
 # Initialize variables before the loop
+#-----------------------------------------------------------------------------
 os_url=""
 os_latest=""
 os_update_avail="-"
 os_pat=""
 
+#-----------------------------------------------------------------------------
+# Parse available OS versions and check for updates
+#-----------------------------------------------------------------------------
 if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_name/"; then
     all_os_versions=$(echo "$os_archive_html" | sed -n 's|.*href="/download/Os/'$os_name'/\([0-9][0-9.+-]*\)".*|\1|p' | sort -V -r)
 
@@ -692,6 +718,7 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                 model_lower=$(echo "$model" | tr '[:upper:]' '[:lower:]')
                 model_series_lower=$(echo "$model_series" | tr '[:upper:]' '[:lower:]')
 
+                # Debug: show extracted model info
                 [ "$DEBUG" = true ] && echo "[DEBUG] Model: $model"
                 [ "$DEBUG" = true ] && echo "[DEBUG] Model series: $model_series"
                 [ "$DEBUG" = true ] && echo "[DEBUG] Model escaped: $model_escaped"
@@ -858,11 +885,13 @@ else
     printf "%-30s|%-30s|%-15s|%-15s|%-6s\n" "-------------------------------" "--------------------------------" "-----------------" "-----------------" "--------"
 fi
 
+#-----------------------------------------------------------------------------
 # Initialize arrays to track packages with available updates:
 # - download_apps: package names
 # - downlaod_revisions: new version numbers
 # - download_links: download URLs for .spk files
 # - downlaod_files: local file paths after download
+#-----------------------------------------------------------------------------
 declare -a download_apps=()
 declare -a downlaod_revisions=()
 declare -a download_links=()
@@ -870,6 +899,7 @@ declare -a downlaod_files=()
 
 # Count total installed packages
 total_installed_packages=0
+
 # Count total running packages (when RUNNING_ONLY is enabled)
 total_running_packages=0
 
@@ -1152,6 +1182,11 @@ for app in $(synopkg list --name | sort); do
     fi
 done
 
+#-----------------------------------------------------------------------------
+# DOWNLOAD UPDATEABLE PACKAGES
+# If any packages have updates available, print download links and download .spk files
+#-----------------------------------------------------------------------------
+
 # Print download links if any updates are available
 if [[ ${#download_apps[@]} -gt 0 && ${#download_links[@]} -gt 0 ]]; then
     # check if both arrays have the same length
@@ -1227,6 +1262,9 @@ EOF
     fi
 fi
 
+#-----------------------------------------------------------------------------
+# FINAL STATUS MESSAGES
+#-----------------------------------------------------------------------------
 # Close HTML table for packages
 if [ "$EMAIL_MODE" = true ]; then
     HTML_OUTPUT+="</table>"
@@ -1308,6 +1346,11 @@ else
 fi
 
 fi  # End of PACKAGES_ONLY check
+
+#-----------------------------------------------------------------------------
+# INFO MODE EMAIL REPORTING
+# If INFO_MODE is enabled, send email report with update information
+#-----------------------------------------------------------------------------
 
 # Exit if in info mode
 if [ "$INFO_MODE" = true ]; then

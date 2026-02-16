@@ -792,7 +792,7 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
         if [ "$EMAIL_MODE" = true ]; then
             # Convert update status to icon for HTML
             if [ "$os_update_avail" = "X" ]; then
-                update_icon="<span style='font-size: 14px;'>🔄</span>"
+                update_icon="<span style='font-size: 14px;'>🔴</span>"
                 # Make latest version clickable if download URL is available
                 if [ -n "$os_url" ]; then
                     os_latest_display="<a href='$os_url' style='color: #0066cc; text-decoration: none;'>$os_latest</a>"
@@ -800,7 +800,7 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                     os_latest_display="$os_latest"
                 fi
             else
-                update_icon="<span style='font-size: 14px; color: #51CF66;'>✅</span>"
+                update_icon="<span style='font-size: 14px; color: #51CF66;'>🟢</span>"
                 os_latest_display="$os_latest"
             fi
             HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$os_name</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_display_version</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_latest_display</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
@@ -830,7 +830,7 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
             fi
             INFO_OUTPUT+="$msg"$'\n'
             if [ "$EMAIL_MODE" = true ]; then
-                HTML_OUTPUT+="<p style='margin-top: 10px; font-weight: bold; color: #228B22;'>✅ No operating system updates available. System is up to date.</p>"
+                HTML_OUTPUT+="<p style='margin-top: 10px; font-weight: bold; color: #228B22;'>🟢 No operating system updates available. System is up to date.</p>"
             fi
         fi
     else
@@ -1151,7 +1151,7 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
         if [ "$EMAIL_MODE" = true ]; then
             # Convert update status to icon for HTML
             if [ "$update_avail" = "X" ]; then
-                update_icon="<span style='font-size: 14px;'>🔄</span>"
+                update_icon="<span style='font-size: 14px;'>🔴</span>"
                 # Make latest version clickable if download URL is available
                 if [ -n "$url" ]; then
                     latest_revision_display="<a href='$url' style='color: #0066cc; text-decoration: none;'>$latest_revision</a>"
@@ -1159,7 +1159,7 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                     latest_revision_display="$latest_revision"
                 fi
             else
-                update_icon="<span style='font-size: 14px; color: #51CF66;'>✅</span>"
+                update_icon="<span style='font-size: 14px; color: #51CF66;'>🟢</span>"
                 latest_revision_display="$latest_revision"
             fi
 
@@ -1305,7 +1305,7 @@ elif [ ${#download_apps[@]} -eq 0 ]; then
         fi
         INFO_OUTPUT+="$msg"$'\n'
         if [ "$EMAIL_MODE" = true ]; then
-            HTML_OUTPUT+="<p style='margin-top: 10px; font-weight: bold; color: #228B22;'>✅ No package updates available. All packages are up to date.</p>"
+            HTML_OUTPUT+="<p style='margin-top: 10px; font-weight: bold; color: #228B22;'>🟢 No package updates available. All packages are up to date.</p>"
         fi
     else
         printf "\nNo package updates available. All packages are up to date.\n"

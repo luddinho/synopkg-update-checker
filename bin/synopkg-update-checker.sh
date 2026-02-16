@@ -211,6 +211,7 @@ send_email() {
     [ "$DEBUG" = true ] && echo "[DEBUG]   Use SSL: $smtp_use_ssl"
     [ "$DEBUG" = true ] && echo "[DEBUG]   Auth: $smtp_auth"
     [ "$DEBUG" = true ] && echo "[DEBUG]   User: $smtp_user"
+    [ "$DEBUG" = true ] && echo "[DEBUG]   Pass: [hidden]"
     [ "$DEBUG" = true ] && echo "[DEBUG]   From: $smtp_from_mail"
     [ "$DEBUG" = true ] && echo "[DEBUG]   Recipient: $recipient"
 
@@ -232,7 +233,7 @@ send_email() {
         echo "Solution 1: Configure recipient in DSM: Control Panel > Notification > Email > Email tab"
         echo "            Make sure to enter an email address in the 'Email' field and click 'Apply'"
         echo "Solution 2: Use --email-to option: $filename --email --email-to your@email.com"
-        [ "$DEBUG" = true ] && echo "[DEBUG] eventmails field in config is: '$(grep '^eventmails=' /usr/syno/etc/synosmtp.conf | cut -d'=' -f2)'"
+        [ "$DEBUG" = true ] && echo "[DEBUG] eventmails field in config is: '$(grep '^eventmails=' /usr/syno/etc/synosmtp.conf | cut -d'=' -f2 | tr -d '"')'"
         return 1
     fi
 
@@ -350,7 +351,17 @@ EOF
         fi
 
         [ "$DEBUG" = true ] && echo "[DEBUG] Using ssmtp with config: $ssmtp_conf"
-        [ "$DEBUG" = true ] && cat "$ssmtp_conf"
+        if [ "$DEBUG" = true ]; then
+            echo "[DEBUG] Using ssmtp with config: $ssmtp_conf"
+            # Print ssmtp_conf with AuthPass hidden
+            while IFS= read -r line; do
+                if [[ "$line" =~ ^AuthPass= ]]; then
+                    echo "AuthPass=[hidden]"
+                else
+                    echo "$line"
+                fi
+            done < "$ssmtp_conf"
+        fi
 
         # Send email using temporary config with HTML body
         {

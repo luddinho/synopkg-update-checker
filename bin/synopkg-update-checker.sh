@@ -918,7 +918,9 @@ total_running_packages=0
 for app in $(synopkg list --name | LC_ALL=C sort -f); do
     # Get package maintainer/source
     pkg_distributor=$(get_package_distributor "$app")
-    [ "$DEBUG" = true ] && echo "[DEBUG] Package: $app, Maintainer: $pkg_distributor"
+    # Get package-specific architecture
+    package_arch=$(synogetkeyvalue "/var/packages/${app}/INFO" arch)
+    [ "$DEBUG" = true ] && echo "[DEBUG] Package: $app, Maintainer: $pkg_distributor, Arch: $package_arch"
 
     # Apply source filters
     if [ "$OFFICIAL_ONLY" = true ]; then
@@ -985,14 +987,14 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                 version_url="https://archive.synology.com/download/Package/$app/$version"
                 version_html=$(curl -s "$version_url")
 
-                [ "$DEBUG" = true ] && echo "[DEBUG] Looking for SPK with arch=$arch OR platform=$platform_name"
+                [ "$DEBUG" = true ] && echo "[DEBUG] Looking for SPK with arch=$package_arch OR platform=$platform_name"
 
                 if [ "$os_name" = "BSM" ]; then
-                    if echo "$version_html" | grep -qiE "BSM.*(${arch}|${platform_name}).*\.spk"; then
+                    if echo "$version_html" | grep -qiE "BSM.*(${package_arch}|${platform_name}).*\.spk"; then
                         latest_revision="$version"
                         # grep the name of the spk file - check both arch and platform
-                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*BSM[^/\"']*(${arch}|${platform_name})[^\"']*\.spk" | head -1)
-                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*BSM[^\"']*(${arch}|${platform_name})[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
+                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*BSM[^/\"']*(${package_arch}|${platform_name})[^\"']*\.spk" | head -1)
+                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*BSM[^\"']*(${package_arch}|${platform_name})[^\"']*\.spk\"" | head -1 | sed 's|href=\"||;s|\"||')
                         download_apps+=("$app")
                         downlaod_revisions+=("$latest_revision")
                         download_links+=("$url")
@@ -1003,11 +1005,11 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                     fi
                 else
                     # Check for DSM packages - look for arch OR platform_name, but exclude BSM
-                    if echo "$version_html" | grep -qiE "(${arch}|${platform_name}).*\.spk" && ! echo "$version_html" | grep -q "BSM"; then
+                    if echo "$version_html" | grep -qiE "(${package_arch}|${platform_name}).*\.spk" && ! echo "$version_html" | grep -q "BSM"; then
                         latest_revision="$version"
                         # grep the name of the spk file - check both arch and platform
-                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*[-](${arch}|${platform_name})[-][^\"']*\.spk" | head -1)
-                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*(${arch}|${platform_name})[^\"']*\.spk\"" | head -1 | sed 's|href="||;s|"||')
+                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*[-](${package_arch}|${platform_name})[-][^\"']*\.spk" | head -1)
+                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*(${package_arch}|${platform_name})[^\"']*\.spk\"" | head -1 | sed 's|href=\"||;s|\"||')
 
                         # If URL is found, prepend domain if relative
                         if [ -n "$url" ] && [[ "$url" =~ ^/ ]]; then
@@ -1022,7 +1024,7 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                         [ "$DEBUG" = true ] && echo "[DEBUG] Found DSM SPK: $spk (URL: $url)"
                         break
                     else
-                        [ "$DEBUG" = true ] && echo "[DEBUG] No SPK found for arch=$arch or platform=$platform_name in version $version"
+                        [ "$DEBUG" = true ] && echo "[DEBUG] No SPK found for arch=$package_arch or platform=$platform_name in version $version"
                     fi
                 fi
             fi

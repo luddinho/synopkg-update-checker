@@ -918,6 +918,12 @@ total_running_packages=0
 for app in $(synopkg list --name | LC_ALL=C sort -f); do
     # Get package maintainer/source
     pkg_distributor=$(get_package_distributor "$app")
+    # Set display name for the source column (shorten GitHub URLs to "GitHub.com")
+    if echo "$pkg_distributor" | grep -qi "github\.com"; then
+        pkg_source_display="GitHub.com"
+    else
+        pkg_source_display="$pkg_distributor"
+    fi
     # Get package-specific architecture
     package_arch=$(synogetkeyvalue "/var/packages/${app}/INFO" arch)
     [ "$DEBUG" = true ] && echo "[DEBUG] Package: $app, Maintainer: $pkg_distributor, Arch: $package_arch"
@@ -1129,6 +1135,62 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                             [ "$DEBUG" = true ] && echo "[DEBUG] Package $app not found in SynoCommunity"
                         fi
                         ;;
+                *github.com*)
+                        # Extract owner and repo from GitHub URL
+                        # Supported formats: https://github.com/<owner>/<repo>/releases
+                        #                    https://github.com/<owner>/<repo>
+                        github_owner=$(echo "$pkg_distributor" | sed -n 's|.*github\.com/\([^/]*\)/.*|\1|p')
+                        github_repo=$(echo "$pkg_distributor" | sed -n 's|.*github\.com/[^/]*/\([^/]*\).*|\1|p' | sed 's|/releases$||')
+                        [ "$DEBUG" = true ] && echo "[DEBUG] GitHub owner: $github_owner, repo: $github_repo"
+
+                        if [ -n "$github_owner" ] && [ -n "$github_repo" ]; then
+                            github_api_url="https://api.github.com/repos/$github_owner/$github_repo/releases/latest"
+                            [ "$DEBUG" = true ] && echo "[DEBUG] Checking GitHub API: $github_api_url"
+                            github_api_response=$(curl -s -H "Accept: application/vnd.github+json" "$github_api_url")
+
+                            if [ $? -eq 0 ] && echo "$github_api_response" | grep -q '"tag_name"'; then
+                                # Extract tag name and strip leading 'v'
+                                github_tag=$(echo "$github_api_response" | grep -oP '"tag_name"\s*:\s*"\K[^"]+')
+                                github_version=$(echo "$github_tag" | sed 's/^v//')
+                                [ "$DEBUG" = true ] && echo "[DEBUG] GitHub latest tag: $github_tag, version: $github_version"
+
+                                # Check if version is newer than installed
+                                if [[ "$github_version" != "$installed_revision" ]] && [[ $(printf '%s\n%s' "$installed_revision" "$github_version" | sort -V | head -1) == "$installed_revision" ]]; then
+                                    [ "$DEBUG" = true ] && echo "[DEBUG] Found newer GitHub version: $github_version"
+
+                                    # Find matching .spk asset for our architecture/platform
+                                    spk_url=$(echo "$github_api_response" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]+\.spk' | \
+                                              grep -i "$platform_name\|$package_arch\|$arch" | head -1)
+
+                                    if [ -z "$spk_url" ]; then
+                                        # Fallback: take any .spk if no arch-specific one found
+                                        spk_url=$(echo "$github_api_response" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]+\.spk' | head -1)
+                                    fi
+
+                                    if [ -n "$spk_url" ]; then
+                                        spk=$(basename "$spk_url")
+                                        [ "$DEBUG" = true ] && echo "[DEBUG] Found GitHub SPK: $spk (URL: $spk_url)"
+                                        latest_revision="$github_version"
+                                        url="$spk_url"
+                                        download_apps+=("$app")
+                                        downlaod_revisions+=("$latest_revision")
+                                        download_links+=("$spk_url")
+                                        update_avail="X"
+                                        found="yes"
+                                    else
+                                        [ "$DEBUG" = true ] && echo "[DEBUG] No .spk asset found for arch=$package_arch or platform=$platform_name"
+                                        latest_revision="$github_version"
+                                    fi
+                                else
+                                    [ "$DEBUG" = true ] && echo "[DEBUG] No newer GitHub version found (installed: $installed_revision, latest: $github_version)"
+                                fi
+                            else
+                                [ "$DEBUG" = true ] && echo "[DEBUG] GitHub API request failed or no release found"
+                            fi
+                        else
+                            [ "$DEBUG" = true ] && echo "[DEBUG] Could not extract GitHub owner/repo from: $pkg_distributor"
+                        fi
+                        ;;
                 *)
                         [ "$DEBUG" = true ] && echo "[DEBUG] No matching community server for distributor: $pkg_distributor"
                         ;;
@@ -1143,7 +1205,7 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
         fi
     fi
     if [ "$INFO_MODE" = true ]; then
-        msg=$(printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "$app" "$pkg_distributor" "$installed_revision" "$latest_revision" "$update_avail")
+        msg=$(printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "$app" "$pkg_source_display" "$installed_revision" "$latest_revision" "$update_avail")
         if [ "$EMAIL_MODE" = false ]; then
             printf "%s\n" "$msg"
         fi
@@ -1169,6 +1231,9 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
             if is_official_package "$app"; then
                 # Official package - blue badge with source name
                 source_display="<span style='background-color: #1E90FF; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>🏢 OFFICIAL</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor</span>"
+            elif echo "$pkg_distributor" | grep -qi "github\.com"; then
+                # GitHub package - muted golden badge
+                source_display="<span style='background-color: #B8860B; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>🐙 GITHUB</span><br><span style='font-size: 10px; color: #666;'><a href='$pkg_distributor' style='color: #0066cc; text-decoration: none;'>GitHub.com</a></span>"
             else
                 # Community package - purple badge with source name
                 source_display="<span style='background-color: #9B59B6; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>👥 COMMUNITY</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor</span>"
@@ -1186,7 +1251,7 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
             INFO_OUTPUT+="$msg"
         fi
     else
-        printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "$app" "$pkg_distributor" "$installed_revision" "$latest_revision" "$update_avail"
+        printf "%-30s | %-30s | %-15s | %-15s | %-6s\n" "$app" "$pkg_source_display" "$installed_revision" "$latest_revision" "$update_avail"
 
         # Add download link right after the table if update is available
         if [ "$update_avail" = "X" ] && [ -n "$download_link" ]; then

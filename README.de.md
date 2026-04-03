@@ -1,7 +1,7 @@
 # synopkg-update-checker
 Prüfen auf Synology DSM und Paket-Updates vom Synology Archiv-Server
 
-**[🇬🇧 English Version](README.md)**
+Sprache: 🇩🇪 Deutsch | [🇬🇧 English](README.md)
 
 ## Voraussetzungen
 - Synology NAS mit DSM oder BSM Betriebssystem

@@ -1,7 +1,7 @@
 # synopkg-update-checker
 Check for Synology DSM and package updates from the Synology archive server
 
-**[🇩🇪 Deutsche Version](README.de.md)**
+Language: 🇬🇧 English | [🇩🇪 Deutsch](README.de.md)
 
 ## Requirements
 - Synology NAS with DSM or BSM operating system

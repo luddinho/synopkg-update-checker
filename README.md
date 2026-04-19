@@ -1,337 +1,202 @@
 # synopkg-update-checker
-Check for Synology DSM and package updates from the Synology archive server
+
+Check Synology DSM or BSM system updates and installed package updates from the Synology archive and supported community sources.
 
 Language: 🇬🇧 English | [🇩🇪 Deutsch](README.de.md)
 
+## Overview
+
+This script currently supports:
+
+- DSM or BSM operating system update checks via the Synology archive
+- package update checks for:
+  - official Synology packages
+  - SynoCommunity packages
+  - GitHub releases when a package distributor points to GitHub
+- interactive installation of downloaded package updates
+- optional HTML email reporting with clickable links and source badges
+- filters for running packages, official packages, community packages, OS-only, or packages-only checks
+
 ## Requirements
-- Synology NAS with DSM or BSM operating system
-- Required commands: `dmidecode`, `curl`, `synopkg`, `synogetkeyvalue`, `wget`
-- Root/sudo access for system operations
+
+- Synology NAS running DSM or BSM
+- required commands:
+  - `curl`
+  - `dmidecode`
+  - `getopt`
+  - `jq`
+  - `synogetkeyvalue`
+  - `synopkg`
+  - `wget`
+- for email mode: `ssmtp`, `sendmail`, or `synodsmnotify`
+- DSM email notification settings configured when using email reports
+- root or sudo privileges recommended, and required for package installation
 
 ## Usage
+
 ```bash
-Usage: ./synopkg-update-checker.sh [options]
-Options:
-  -i, --info          Display system and update information only,
-                      like dry-run but without download messages and interactive installation
-  -e, --email         Email mode - no output to stdout, only send report via email (requires --info)
-  --email-to <email>  Override recipient email address (optional, defaults to DSM configuration)
-  -r, --running       Check updates only for packages that are currently running
-  --official-only     Show only official Synology packages
-  --community-only    Show only community/third-party packages
-  --os-only           Check only for operating system updates
-  --packages-only     Check only for package updates
-  -n, --dry-run       Perform a dry run without downloading or installing updates
-  -v, --verbose       Enable verbose output (not implemented)
-  -d, --debug         Enable debug mode
-  -h, --help          Display this help message
+./bin/synopkg-update-checker.sh [options]
 ```
 
-### Options
-1. **Info mode** (`-i, --info`): Display system and update information without downloading or installing. Perfect for quick checks or automated monitoring.
-2. **Email mode** (`-e, --email`): Send update report via email with professional HTML formatting including:
-   - **Styled HTML tables** with color-coded headers:
-     - System Information: Green header
-     - Operating System: Light blue header
-     - Packages: Orange header
-   - **Package source badges**: 🏢 OFFICIAL (blue) or 👥 COMMUNITY (purple) with source name
-   - **Visual indicators**: 🔄 emoji for updates available, ✅ emoji for no updates   - **Status messages with color coding**:
-     - Dark green (#228B22) with ✅ emoji when no updates available
-     - Red (#FF0000) with ⚠️ emoji when updates are available   - **Clickable download links**: Version numbers become clickable links when updates are available
-   - **Summary statistics**: Total installed packages and packages with updates
-   - Requires email configuration in DSM (Control Panel > Notification > Email)
-   - **Optional**: Use `--email-to <email>` to override recipient without changing DSM settings
-3. **Running only** (`-r, --running`): Check updates only for packages that are currently running. Stopped packages are skipped. Useful for focusing on active services. Package count reflects only running packages when combined with this filter.
-4. **Official only** (`--official-only`): Show only official Synology packages. Community/third-party packages are filtered out. Package count shows only official packages.
-5. **Community only** (`--community-only`): Show only community/third-party packages (e.g., from SynoCommunity). Official Synology packages are filtered out. Package count shows only community packages. Cannot be used with `--official-only`.
-6. **OS only** (`--os-only`): Check only for operating system updates. Package update check is skipped. Cannot be used with `--packages-only`.
-7. **Packages only** (`--packages-only`): Check only for package updates. Operating system update check is skipped. Cannot be used with `--os-only`.
-8. **Dry-run mode** (`-n, --dry-run`): Check for updates and simulate the upgrade procedure without downloading or installing. Interactive menu is still shown.
-9. **Debug mode** (`-d, --debug`): Enable detailed debug output for troubleshooting including:
-   - Package source detection (distributor field)
-   - Server URLs being queried (Synology archive or community repositories)
-   - Version comparison logic and matching process
-   - When combined with email mode (`-d -e`), saves a copy of the HTML email to `debug/email_YYYYMMDD_HHMMSS.html` for inspection.
+```text
+Options:
+  -i, --info          Display system and update information only
+  -e, --email         Send the report by email and automatically enable info mode
+  --email-to <email>  Override the configured DSM recipient address
+  -r, --running       Check updates only for currently running packages
+  --official-only     Show only official Synology packages
+  --community-only    Show only community or third-party packages
+  --os-only           Check only for operating system updates
+  --packages-only     Check only for package updates
+  -n, --dry-run       Simulate actions without downloading or installing
+  -v, --verbose       Reserved flag, currently not implemented
+  -d, --debug         Enable detailed debug output
+  -h, --help          Show help
+```
 
-### Restrictions
-Operating system updates e.g. for DSM will only reported because the command ```sudo synoupgrade --patch /path/to/file.pat``` does not work.
+## Option details
 
-### Workflow
-1. System information is evaluated
-- Product
-- Model
-- Architecture
-- Platform Name (CPU codename like avoton, apollolake, etc.)
-- Operating System
-- Version
+| Option | Description |
+| --- | --- |
+| `-i`, `--info` | Prints a report only. No downloads and no installation menu. |
+| `-e`, `--email` | Sends the report as HTML email and automatically switches to info mode. No normal stdout report is produced. |
+| `--email-to <email>` | Uses a custom recipient instead of the DSM notification configuration. |
+| `-r`, `--running` | Limits package checks to services that are currently running. |
+| `--official-only` | Shows only official Synology packages. |
+| `--community-only` | Shows only community or third-party packages. Cannot be combined with `--official-only`. |
+| `--os-only` | Skips package checks and only reports DSM or BSM updates. |
+| `--packages-only` | Skips OS checks and only reports package updates. Cannot be combined with `--os-only`. |
+| `-n`, `--dry-run` | Simulates the run without downloading or installing any package. |
+| `-d`, `--debug` | Shows additional internal details and, in email mode, stores a local HTML copy in `debug/`. |
+| `-v`, `--verbose` | Present in the CLI, but not used by the current code yet. |
 
-2. With the system information the Synology archive server will be parsed dependent on the installed OS version and the packages to identify available updates.
+## Update sources and detection
 
-3. Operating System Update Check
-   - Fetches available OS versions from `https://archive.synology.com/download/Os/<OS_NAME>`
-   - Compares installed version with available versions
-   - Checks for model compatibility
-   - Displays update availability in a table format
-   - If an OS update is available:
-     - Shows download link for the `.pat` file
-     - Downloads the file (unless `--dry-run` is enabled)
-     - **Note:** OS updates are only reported and downloaded. Installation must be done manually as `synoupgrade --patch` is not supported.
+The script identifies package sources from the package INFO metadata in `/var/packages/<package>/INFO`.
 
-4. Package Update Check
-   - Iterates through all installed packages using `synopkg list`
-   - For each package:
-     - Detects package source automatically by checking the `distributor` field in `/var/packages/<package>/INFO`:
-       - No distributor field or `distributor="Synology Inc."`: Official Synology package
-       - Other distributor (e.g., `SynoCommunity`): Community/third-party package
-     - Applies filter options (`--official-only`, `--community-only`, `--running`) if specified
-     - For official packages: Queries Synology archive server only
-     - For community packages: Queries community repository directly (e.g., SynoCommunity) using the `distributor_url` from INFO file
-     - Verifies architecture and OS compatibility
-   - Displays results in a table with columns:
-     - Package name
-     - Source (distributor/maintainer with badge in email mode)
-     - Installed version
-     - Latest version
-     - Update available (X or -)
-   - Creates a list of packages with available updates
-   - Package count reflects any active filters
+- **Official Synology package**
+  - no `distributor` field, or
+  - `distributor="Synology Inc."`
+- **GitHub package**
+  - the distributor contains a GitHub URL such as `https://github.com/<owner>/<repo>`
+  - the script checks the latest GitHub release and looks for matching `.spk` assets
+- **Community package**
+  - any other non-Synology distributor
+  - SynoCommunity pages are checked directly when applicable
 
-5. Package Download
-   - Downloads all available package updates (`.spk` files) to `downloads/packages/` directory
-   - Skips download in `--dry-run` mode
-   - Shows progress for each download
+For package downloads, the script now uses the package-specific `arch` value from each package INFO file, plus the system platform name, to find the best matching SPK file.
 
-6. Interactive Package Installation
-   - Presents an interactive menu with available packages to update
-   - Options:
-     - Select individual packages by number
-     - Select `all` to process all packages
-     - Select `quit` to exit without installing
-   - For each selected package:
-     - Prompts for confirmation before installation
-     - Installs using `synopkg install <file>` (unless `--dry-run` is enabled)
-     - Reports success or error status
-   - Continues until all packages are processed or user quits
+## Email report formatting
 
-7. Cleanup
-   - Removes the `downloads/` directory and all downloaded files after installation
+When email mode is used, the report contains styled HTML tables and visual badges:
+
+- 🏢 **OFFICIAL** for Synology packages
+- 👥 **COMMUNITY** for community repositories
+- 🐙 **GITHUB** for packages tracked from GitHub releases
+- 🔴 means an update is available
+- 🟢 means the installed item is already up to date
+
+The terminal table still uses simple values in the **Update** column:
+
+- `X` = update available
+- `-` = no update
+
+## Workflow
+
+1. Collect system information:
+   - product
+   - model
+   - architecture
+   - platform name
+   - operating system
+   - installed version
+
+2. Check operating system updates:
+   - query the Synology archive
+   - compare installed and available versions
+   - verify model or platform compatibility
+   - show a direct `.pat` download link when an update exists
+
+3. Check installed packages:
+   - list installed packages in stable alphabetical order
+   - detect each package source
+   - apply active filters such as running-only or official-only
+   - compare installed and latest versions
+   - collect matching download URLs for updateable packages
+
+4. In normal mode:
+   - download package files to `downloads/packages/`
+   - present an interactive selection menu
+   - install chosen packages with confirmation
+
+5. Cleanup:
+   - remove the temporary download directory when the run is finished
+
+## Important notes and limitations
+
+- OS updates are **reported with download links only**. The current script does not install DSM or BSM updates automatically.
+- Package installation requires confirmation and should be run with appropriate privileges.
+- `--email` depends on DSM mail settings or an explicit `--email-to` override.
+- In `--debug --email` mode, a copy of the generated HTML report is saved as `debug/email_YYYYMMDD_HHMMSS.html`.
+- If sending the email fails, the script exits with an error.
 
 ## Examples
 
-### Check for updates (info mode)
+### Show a report only
+
 ```bash
 ./bin/synopkg-update-checker.sh --info
 ```
-This will:
-- Display system information
-- Check for OS and package updates
-- Show available updates without downloading or installing anything
-- Exit after displaying information (no interactive menu)
 
-### Check for updates and notify by email
+### Send the report by email
+
 ```bash
 ./bin/synopkg-update-checker.sh --email
 ```
-This will:
-- Check for OS and package updates
-- Send an HTML-formatted email report with:
-  - System information
-  - Update availability tables
-  - Clickable download links (shortened to show app names)
-- Requires email configuration in DSM (see [Configure E-Mail notification])
 
-**Alternative:** Override recipient email address without changing DSM settings:
+### Send the report to a custom recipient
+
 ```bash
-./bin/synopkg-update-checker.sh --email --email-to your@email.com
+./bin/synopkg-update-checker.sh --email --email-to you@example.com
 ```
 
-[Configure E-Mail notification]: https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_notification_email?version=7
+### Check only running official packages
 
-### Check for updates (dry-run mode)
+```bash
+./bin/synopkg-update-checker.sh --info --running --official-only
+```
+
+### Check only community and GitHub-based packages
+
+```bash
+./bin/synopkg-update-checker.sh --info --community-only --packages-only
+```
+
+### Simulate the installation flow
+
 ```bash
 ./bin/synopkg-update-checker.sh --dry-run
 ```
-This will:
-- Display system information
-- Check for OS and package updates
-- Show available updates
-- Present interactive menu but skip actual downloads and installations
 
-### Check and install updates
+### Download and install available package updates
+
 ```bash
 sudo ./bin/synopkg-update-checker.sh
 ```
-This will:
-- Display system information
-- Check for OS and package updates
-- Download available updates
-- Present an interactive menu to select packages for installation
-- Install selected packages after confirmation
 
-### Debug mode
-```bash
-./bin/synopkg-update-checker.sh --debug
-```
-Enables detailed debug output showing:
-- Version comparison logic
-- .pat file matching process
-- URL extraction details
+## Output directories
 
-## Output Example
-
-### No updates available
-```
-./bin/synopkg-update-checker.sh
-
-System Information
-=============================================================================================================
-Product                                                         | DiskStation
-Model                                                           | DS1817+
-Architecture                                                    | x86_64
-Operating System                                                | DSM
-DSM Version                                                     | 7.3.2-86009
-
-Operating System Update Check
-=============================================================================================================
-
-Operating System                                                | Installed       | Latest          | Update
-----------------------------------------------------------------|-----------------|-----------------|--------
-DSM                                                             | 7.3.2-86009     | 7.3.2-86009     | -
-
-No operating system updates available. System is up to date.
-
-Package Update Check
-=============================================================================================================
-
-Package                        | Source                         | Installed       | Latest          | Update
--------------------------------|--------------------------------|-----------------|-----------------|--------
-ActiveInsight                  | Synology Inc.                  | 3.0.5-24122     | 3.0.5-24122     | -
-Apache2.4                      | Synology Inc.                  | 2.4.63-0155     | 2.4.63-0155     | -
-MariaDB10                      | Synology Inc.                  | 10.11.11-1551   | 10.11.11-1551   | -
-SynologyDrive                  | Synology Inc.                  | 4.0.2-27889     | 4.0.2-27889     | -
-SynologyPhotos                 | Synology Inc.                  | 1.8.2-10090     | 1.8.2-10090     | -
-
-No package updates available. All packages are up to date.
-
-Total installed packages: 5
-
-No packages to update. Exiting.
-```
-
-### Two updates available
-```
-./bin/synopkg-update-checker.sh
-
-System Information
-=============================================================================================================
-Product                                                         | DiskStation
-Model                                                           | DS1817+
-Architecture                                                    | x86_64
-Operating System                                                | DSM
-DSM Version                                                     | 7.3.2-86009
-
-Operating System Update Check
-=============================================================================================================
-
-Operating System                                                | Installed       | Latest          | Update
-----------------------------------------------------------------|-----------------|-----------------|--------
-DSM                                                             | 7.3.2-86009     | 7.3.2-86009     | -
-
-No operating system updates available. System is up to date.
-
-Package Update Check
-=============================================================================================================
-
-Package                        | Source                         | Installed       | Latest          | Update
--------------------------------|--------------------------------|-----------------|-----------------|--------
-MariaDB10                      | Synology Inc.                  | 10.11.11-1551   | 10.11.12-1552   | X
-SynologyDrive                  | Synology Inc.                  | 4.0.2-27889     | 4.0.3-27900     | X
-SynologyPhotos                 | Synology Inc.                  | 1.8.2-10090     | 1.8.2-10090     | -
-
-*** PACKAGE UPDATES AVAILABLE ***
-
-Download Links for Available Updates:
-=============================================================================================================
-
-Application                    | Version         | URL
------------------------------- | --------------- | --------------------------------------------------
-MariaDB10                      | 10.11.12-1552   | https://archive.synology.com/download/Package/spk/MariaDB10-x86_64-10.11.12-1552.spk
-SynologyDrive                  | 4.0.3-27900     | https://archive.synology.com/download/Package/spk/SynologyDrive-x86_64-4.0.3-27900.spk
-
-Downloading updateable packages
-=============================================================================================================
-
-Downloading MariaDB10-x86_64-10.11.12-1552.spk...
-Package: MariaDB10
-File: MariaDB10-x86_64-10.11.12-1552.spk
-Path: /path/to/downloads/packages/MariaDB10-x86_64-10.11.12-1552.spk
-
-Downloading SynologyDrive-x86_64-4.0.3-27900.spk...
-Package: SynologyDrive
-File: SynologyDrive-x86_64-4.0.3-27900.spk
-Path: /path/to/downloads/packages/SynologyDrive-x86_64-4.0.3-27900.spk
-
-Total installed packages: 5
-Total packages with updates available: 2
-
-Select packages to update:
-==========================
-
-1) MariaDB10
-2) SynologyDrive
-3) all
-4) quit
-Select the operation: 1
-
-You selected to update package: MariaDB10
-Are you sure you want to update this package? (y/n): y
-Installing package from file: /path/to/downloads/packages/MariaDB10-x86_64-10.11.12-1552.spk
-
-Package MariaDB10 installed successfully.
-
-Select packages to update:
-==========================
-
-1) SynologyDrive
-2) all
-3) quit
-Select the operation: 1
-
-You selected to update package: SynologyDrive
-Are you sure you want to update this package? (y/n): n
-Installation cancelled by user.
-Starting over selection.
-
-Select packages to update:
-==========================
-
-1) SynologyDrive
-2) all
-3) quit
-Select the operation: 2
-
-You selected to update all packages.
-Are you sure you want to update this package? (y/n): y
-Installing package from file: /path/to/downloads/packages/SynologyDrive-x86_64-4.0.3-27900.spk
-
-Package SynologyDrive installed successfully.
-
-All packages processed. Exiting.
-```
-
-## Output Structure
-```
+```text
 downloads/
-└── packages/    # Package .spk files
+├── os/
+└── packages/
 
-debug/           # HTML email debug files (when using -d -e flags)
+debug/
 └── email_YYYYMMDD_HHMMSS.html
 ```
 
-**Note:** OS update files (`.pat`) are not downloaded due to installation restrictions.
+## DSM email configuration
 
-## Notes
-- OS updates are only reported with download links. Installation must be done manually through DSM interface
-- Package installations require user confirmation
-- All downloads are cleaned up automatically after the script completes
-- Use `--dry-run` for safe testing without modifying your system
+If you want to use email reporting, configure DSM notifications first:
+
+[Configure Synology email notifications](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_notification_email?version=7)

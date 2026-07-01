@@ -844,7 +844,12 @@ trap cleanup_work_dir EXIT
 # mktemp -d already yields an absolute, canonical path, so no realpath
 # normalization of ".." segments is needed here.
 download_dir="$work_dir/downloads"
-debug_dir="${TMPDIR:-/tmp}/synopkg-update-checker-debug"
+# Debug artifacts are meant to survive after this run (work_dir is removed on
+# EXIT), so they live outside work_dir. Create them with mktemp -d at use time
+# so the directory is 0700, owned by us, and has an unpredictable name. Never
+# use a fixed /tmp path here: a fixed, predictable name lets a non-privileged
+# user pre-create it (or plant a symlink) and read the report we write as root.
+debug_dir=""
 
 # Create subdirectory for OS
 download_dir_os="$download_dir/os"
@@ -1877,8 +1882,9 @@ if [ "$INFO_MODE" = true ]; then
 
         # Save HTML email to debug directory if debug mode is enabled
         if [ "$DEBUG" = true ] && [ -n "$HTML_OUTPUT" ]; then
-            if ! mkdir -p "$debug_dir"; then
-                echo "Error: Could not create debug directory: $debug_dir" >&2
+            debug_dir=$(mktemp -d "${TMPDIR:-/tmp}/synopkg-update-checker-debug.XXXXXX" 2>/dev/null)
+            if [ -z "$debug_dir" ]; then
+                echo "Error: Could not create debug directory." >&2
                 exit 1
             fi
 

@@ -132,8 +132,10 @@ normalize_os_version() {
     fi
 
     # Some SPKs declare min OS as major.minor-build (e.g. 7.4-101141).
+    # Keep this format intact so compatibility checks can compare build gates
+    # directly against the currently installed build number.
     if [[ "$version" =~ ^([0-9]+)\.([0-9]+)-([0-9]+)$ ]]; then
-        echo "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.0-${BASH_REMATCH[3]}-0"
+        echo "$version"
         return
     fi
 
@@ -148,15 +150,133 @@ normalize_os_version() {
 
 #-----------------------------------------------------------------------------
 # Function is_version_gte()
-# Compare two normalized versions. Returns 0 if current >= required.
+# Compare current OS version against a required version.
+# Supports both full versions (x.y.z-build[-smallfix]) and build-gated
+# requirements (x.y-build).
+# Returns 0 if current >= required.
 #-----------------------------------------------------------------------------
 is_version_gte() {
     local current_version="$1"
     local required_version="$2"
-    local oldest
+    local required_major=""
+    local required_minor=""
+    local required_build=""
+    local current_major=""
+    local current_minor=""
+    local current_micro=""
+    local current_build=""
+    local current_smallfix="0"
+    local required_micro=""
+    local required_smallfix="0"
 
-    oldest=$(printf '%s\n%s\n' "$required_version" "$current_version" | sort -V | head -1)
-    [ "$oldest" = "$required_version" ]
+    # Build-gated requirement used by some SPKs (e.g. 7.4-101141).
+    if [[ "$required_version" =~ ^([0-9]+)\.([0-9]+)-([0-9]+)$ ]]; then
+        required_major="${BASH_REMATCH[1]}"
+        required_minor="${BASH_REMATCH[2]}"
+        required_build="${BASH_REMATCH[3]}"
+
+        if [[ "$current_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)-([0-9]+)$ ]]; then
+            current_major="${BASH_REMATCH[1]}"
+            current_minor="${BASH_REMATCH[2]}"
+            current_build="${BASH_REMATCH[4]}"
+        elif [[ "$current_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)$ ]]; then
+            current_major="${BASH_REMATCH[1]}"
+            current_minor="${BASH_REMATCH[2]}"
+            current_build="${BASH_REMATCH[4]}"
+        else
+            return 1
+        fi
+
+        if [ "$current_major" -gt "$required_major" ]; then
+            return 0
+        fi
+        if [ "$current_major" -lt "$required_major" ]; then
+            return 1
+        fi
+
+        if [ "$current_minor" -gt "$required_minor" ]; then
+            return 0
+        fi
+        if [ "$current_minor" -lt "$required_minor" ]; then
+            return 1
+        fi
+
+        if [ "$current_build" -ge "$required_build" ]; then
+            return 0
+        fi
+        return 1
+    fi
+
+    # Full semantic compare: major, minor, micro, build, smallfix.
+    if [[ "$required_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)-([0-9]+)$ ]]; then
+        required_major="${BASH_REMATCH[1]}"
+        required_minor="${BASH_REMATCH[2]}"
+        required_micro="${BASH_REMATCH[3]}"
+        required_build="${BASH_REMATCH[4]}"
+        required_smallfix="${BASH_REMATCH[5]}"
+    elif [[ "$required_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)$ ]]; then
+        required_major="${BASH_REMATCH[1]}"
+        required_minor="${BASH_REMATCH[2]}"
+        required_micro="${BASH_REMATCH[3]}"
+        required_build="${BASH_REMATCH[4]}"
+        required_smallfix="0"
+    else
+        # Fallback for unknown formats.
+        local oldest
+        oldest=$(printf '%s\n%s\n' "$required_version" "$current_version" | sort -V | head -1)
+        [ "$oldest" = "$required_version" ]
+        return
+    fi
+
+    if [[ "$current_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)-([0-9]+)$ ]]; then
+        current_major="${BASH_REMATCH[1]}"
+        current_minor="${BASH_REMATCH[2]}"
+        current_micro="${BASH_REMATCH[3]}"
+        current_build="${BASH_REMATCH[4]}"
+        current_smallfix="${BASH_REMATCH[5]}"
+    elif [[ "$current_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)$ ]]; then
+        current_major="${BASH_REMATCH[1]}"
+        current_minor="${BASH_REMATCH[2]}"
+        current_micro="${BASH_REMATCH[3]}"
+        current_build="${BASH_REMATCH[4]}"
+        current_smallfix="0"
+    else
+        return 1
+    fi
+
+    if [ "$current_major" -gt "$required_major" ]; then
+        return 0
+    fi
+    if [ "$current_major" -lt "$required_major" ]; then
+        return 1
+    fi
+
+    if [ "$current_minor" -gt "$required_minor" ]; then
+        return 0
+    fi
+    if [ "$current_minor" -lt "$required_minor" ]; then
+        return 1
+    fi
+
+    if [ "$current_micro" -gt "$required_micro" ]; then
+        return 0
+    fi
+    if [ "$current_micro" -lt "$required_micro" ]; then
+        return 1
+    fi
+
+    if [ "$current_build" -gt "$required_build" ]; then
+        return 0
+    fi
+    if [ "$current_build" -lt "$required_build" ]; then
+        return 1
+    fi
+
+    if [ "$current_smallfix" -ge "$required_smallfix" ]; then
+        return 0
+    fi
+
+    return 1
 }
 
 #-----------------------------------------------------------------------------

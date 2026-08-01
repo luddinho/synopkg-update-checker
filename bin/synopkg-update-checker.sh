@@ -778,6 +778,21 @@ if [ "$OS_ONLY" = true ] && [ "$PACKAGES_ONLY" = true ]; then
 fi
 
 #-----------------------------------------------------------------------------
+# Validate email option combinations
+#-----------------------------------------------------------------------------
+if [ "$EMAIL_MODE" = false ] && [ "$EMAIL_UPDATES_ONLY" = true ]; then
+    echo "Error: --email-updates-only requires --email"
+    usage
+    exit 1
+fi
+
+if [ "$EMAIL_MODE" = false ] && [ -n "$EMAIL_TO" ]; then
+    echo "Error: --email-to requires --email"
+    usage
+    exit 1
+fi
+
+#-----------------------------------------------------------------------------
 # Initialize output capture variable for INFO_MODE
 #-----------------------------------------------------------------------------
 INFO_OUTPUT=""
@@ -1803,6 +1818,7 @@ if [ "$INFO_MODE" = true ]; then
     if [ "$EMAIL_MODE" = false ]; then
         printf "\n"
     fi
+
     # Send email if EMAIL_MODE is enabled
     if [ "$EMAIL_MODE" = true ]; then
         if [ "$EMAIL_UPDATES_ONLY" = true ]; then

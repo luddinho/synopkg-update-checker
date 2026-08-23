@@ -2022,6 +2022,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                     fi
                                 else
                                     echo "Installation failed (error code: $error_code)"
+                                    printf "synopkg output: %s\n" "$output"
                                 fi
                             fi
                         else
@@ -2082,6 +2083,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                     fi
                                 else
                                     echo "Installation failed (error code: $error_code)"
+                                    printf "synopkg output: %s\n" "$output"
                                 fi
                             fi
 

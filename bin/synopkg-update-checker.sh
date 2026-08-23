@@ -820,6 +820,8 @@ else
     rm -rf "$download_dir"
     mkdir -p "$download_dir"
 fi
+# Normalize path to resolve ".." segments (e.g. bin/../downloads -> downloads)
+download_dir="$(realpath "$download_dir")"
 # Create subdirectory for OS
 download_dir_os="$download_dir/os"
 if [ ! -d "$download_dir_os" ]; then

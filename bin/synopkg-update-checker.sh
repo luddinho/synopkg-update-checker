@@ -1960,6 +1960,40 @@ download_package_file() {
     return 0
 }
 
+# Install a package, automatically starting/retrying once when synopkg reports
+# dependent packages are not ready (error code 268) so a fixable dependency
+# issue doesn't silently leave the package outdated on every subsequent run.
+# Sets globals: INSTALL_OUTPUT, INSTALL_ERROR_CODE, INSTALL_SUCCESS
+install_package_with_retry() {
+    local file="$1"
+
+    INSTALL_OUTPUT=$(synopkg install "$file" 2>/dev/null)
+    INSTALL_ERROR_CODE=$(echo "$INSTALL_OUTPUT" | jq -r '.error.code')
+    INSTALL_SUCCESS=$(echo "$INSTALL_OUTPUT" | jq -r '.success')
+
+    if [ "$INSTALL_SUCCESS" = "true" ] && [ "$INSTALL_ERROR_CODE" = "0" ]; then
+        return 0
+    fi
+
+    local dep_code dep_pkgs dep
+    dep_code=$(echo "$INSTALL_OUTPUT" | jq -r '.results[0].error.code // empty')
+    dep_pkgs=$(echo "$INSTALL_OUTPUT" | jq -r '.results[0].error.packages // empty | if type=="object" then keys[] else empty end')
+
+    if [ "$dep_code" = "268" ] && [ -n "$dep_pkgs" ]; then
+        printf "Dependent package(s) not ready: %s. Attempting to start them and retry install...\n" "$(echo "$dep_pkgs" | tr '\n' ' ')"
+        for dep in $dep_pkgs; do
+            printf "Starting dependent package: %s\n" "$dep"
+            synopkg start "$dep" >/dev/null 2>&1
+        done
+
+        INSTALL_OUTPUT=$(synopkg install "$file" 2>/dev/null)
+        INSTALL_ERROR_CODE=$(echo "$INSTALL_OUTPUT" | jq -r '.error.code')
+        INSTALL_SUCCESS=$(echo "$INSTALL_OUTPUT" | jq -r '.success')
+    fi
+
+    return 0
+}
+
 printf "\n"
 printf "Select packages to update:\n"
 printf "==========================\n"
@@ -1997,9 +2031,10 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                 prev_status_output=$(synopkg status "$app_name" 2>/dev/null)
                                 prev_pkg_status=$(echo "$prev_status_output" | jq -r '.status')
                                 printf "Installing package from file: %s\n" "$selected_file"
-                                output=$(synopkg install "$selected_file" 2>/dev/null)
-                                error_code=$(echo "$output" | jq -r '.error.code')
-                                success=$(echo "$output" | jq -r '.success')
+                                install_package_with_retry "$selected_file"
+                                output="$INSTALL_OUTPUT"
+                                error_code="$INSTALL_ERROR_CODE"
+                                success="$INSTALL_SUCCESS"
                                 if [ "$success" = "true" ] && [ "$error_code" = "0" ]; then
                                     echo "Installation successful (error code: $error_code)"
                                     # Only start the application if it was running before and is not running after
@@ -2021,7 +2056,19 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                         echo "Application was running before and is already running after update. Not starting."
                                     fi
                                 else
-                                    echo "Installation failed (error code: $error_code)"
+                                    # The top-level error.code is a generic wrapper; the actual reason is nested in results[0].error
+                                    result_error_code=$(echo "$output" | jq -r '.results[0].error.code // empty')
+                                    result_error_desc=$(echo "$output" | jq -r '.results[0].error.description // empty')
+                                    result_error_pkgs=$(echo "$output" | jq -r '.results[0].error.packages // empty | if type=="object" then keys | join(", ") else empty end')
+                                    if [ -n "$result_error_desc" ]; then
+                                        printf "Installation failed (code %s): %s" "$result_error_code" "$result_error_desc"
+                                        if [ -n "$result_error_pkgs" ]; then
+                                            printf " [missing/blocking: %s]" "$result_error_pkgs"
+                                        fi
+                                        printf "\n"
+                                    else
+                                        echo "Installation failed (error code: $error_code)"
+                                    fi
                                     printf "synopkg output: %s\n" "$output"
                                 fi
                             fi
@@ -2058,9 +2105,10 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                 prev_status_output=$(synopkg status "$app_name" 2>/dev/null)
                                 prev_pkg_status=$(echo "$prev_status_output" | jq -r '.status')
                                 printf "Installing package from file: %s\n" "$selected_file"
-                                output=$(synopkg install "$selected_file" 2>/dev/null)
-                                error_code=$(echo "$output" | jq -r '.error.code')
-                                success=$(echo "$output" | jq -r '.success')
+                                install_package_with_retry "$selected_file"
+                                output="$INSTALL_OUTPUT"
+                                error_code="$INSTALL_ERROR_CODE"
+                                success="$INSTALL_SUCCESS"
                                 if [ "$success" = "true" ] && [ "$error_code" = "0" ]; then
                                     echo "Installation successful (error code: $error_code)"
                                     # Only start the application if it was running before and is not running after
@@ -2082,7 +2130,19 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                                         echo "Application was running before and is already running after update. Not starting."
                                     fi
                                 else
-                                    echo "Installation failed (error code: $error_code)"
+                                    # The top-level error.code is a generic wrapper; the actual reason is nested in results[0].error
+                                    result_error_code=$(echo "$output" | jq -r '.results[0].error.code // empty')
+                                    result_error_desc=$(echo "$output" | jq -r '.results[0].error.description // empty')
+                                    result_error_pkgs=$(echo "$output" | jq -r '.results[0].error.packages // empty | if type=="object" then keys | join(", ") else empty end')
+                                    if [ -n "$result_error_desc" ]; then
+                                        printf "Installation failed (code %s): %s" "$result_error_code" "$result_error_desc"
+                                        if [ -n "$result_error_pkgs" ]; then
+                                            printf " [missing/blocking: %s]" "$result_error_pkgs"
+                                        fi
+                                        printf "\n"
+                                    else
+                                        echo "Installation failed (error code: $error_code)"
+                                    fi
                                     printf "synopkg output: %s\n" "$output"
                                 fi
                             fi

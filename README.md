@@ -42,6 +42,8 @@ This script currently supports:
 ```text
 Options:
   -i, --info          Display system and update information only
+  --info-fail-on-updates
+                      With --info, exit 1 when updates are found, otherwise exit 0
   -e, --email         Send the report by email and automatically enable info mode
   --email-updates-only
                       In email mode, send a report only when at least one update is available
@@ -62,6 +64,7 @@ Options:
 | Option | Description |
 | --- | --- |
 | `-i`, `--info` | Prints a report only. No downloads and no installation menu. |
+| `--info-fail-on-updates` | Only valid together with `--info`. Makes the script exit with status `1` when at least one OS or package update is found for the selected checks, and `0` otherwise. Designed for **Synology Task Scheduler**: create a scheduled task running `synopkg-update-checker.sh --info --info-fail-on-updates`, enable *"Send run details only when the script terminates abnormally"*, and you can run it daily but only get an email on the days an update is actually available. Also handy for any cron job or monitoring that keys off the exit code. |
 | `-e`, `--email` | Sends the report as HTML email and automatically switches to info mode. No normal stdout report is produced. |
 | `--email-updates-only` | In combination with `--email`, sends a report only if at least one OS or package update is available. |
 | `--email-to <email>` | Uses a custom recipient instead of the DSM notification configuration. |

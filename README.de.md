@@ -42,6 +42,8 @@ Das Skript unterstützt aktuell:
 ```text
 Optionen:
   -i, --info          Nur System- und Update-Informationen anzeigen
+  --info-fail-on-updates
+                      Mit --info Exit-Code 1, wenn Updates gefunden werden, sonst 0
   -e, --email         Bericht per E-Mail senden und automatisch den Info-Modus aktivieren
   --email-updates-only
                       Im E-Mail-Modus nur senden, wenn mindestens ein Update verfügbar ist
@@ -62,6 +64,7 @@ Optionen:
 | Option | Beschreibung |
 | --- | --- |
 | `-i`, `--info` | Zeigt nur den Bericht an. Keine Downloads und kein Installationsmenü. |
+| `--info-fail-on-updates` | Nur zusammen mit `--info` gültig. Das Skript beendet sich mit Status `1`, wenn für die gewählten Prüfungen mindestens ein OS- oder Paket-Update gefunden wird, sonst mit `0`. Gedacht für den **Synology-Aufgabenplaner**: Lege eine geplante Aufgabe mit `synopkg-update-checker.sh --info --info-fail-on-updates` an, aktiviere *„Ausführungsdetails nur bei abnormaler Beendigung des Skripts senden"*, und du kannst das Skript täglich laufen lassen, erhältst aber nur an den Tagen eine E-Mail, an denen tatsächlich ein Update verfügbar ist. Ebenso praktisch für Cronjobs oder Monitoring, die auf den Exit-Code reagieren. |
 | `-e`, `--email` | Sendet den Bericht als HTML-E-Mail und aktiviert automatisch den Info-Modus. Es gibt dabei keine normale stdout-Ausgabe. |
 | `--email-updates-only` | In Kombination mit `--email` wird nur dann ein Bericht gesendet, wenn mindestens ein OS- oder Paket-Update verfügbar ist. |
 | `--email-to <email>` | Verwendet einen benutzerdefinierten Empfänger statt der DSM-Konfiguration. |

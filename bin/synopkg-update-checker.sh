@@ -12,6 +12,7 @@
 #-----------------------------------------------------------------------------
 DRY_RUN=false
 INFO_MODE=false
+INFO_FAIL_ON_UPDATES=false
 EMAIL_MODE=false
 EMAIL_TO=""
 EMAIL_UPDATES_ONLY=false
@@ -36,6 +37,8 @@ usage() {
     Options:
         -i, --info          Display system and update information only,
                             like dry-run but without download messages and interactive installation
+        --info-fail-on-updates Exit 1 when selected checks find updates, otherwise exit 0
+                    (works only with --info)
         -e, --email         Email mode - no output to stdout, only capture to variable (requires --info)
         --email-updates-only Send email only when at least one update is available
                     (works only with --email)
@@ -695,7 +698,7 @@ EOF
 # Parse the command line arguments using getopt
 #-----------------------------------------------------------------------------
 filename=$(basename "$0")
-PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,email,email-updates-only,email-to:,dry-run,running,verbose,debug,official-only,community-only,os-only,packages-only,help -- "$@")
+PARSED_OPTIONS=$(getopt -n "$filename" -o ienvrdh --long info,info-fail-on-updates,email,email-updates-only,email-to:,dry-run,running,verbose,debug,official-only,community-only,os-only,packages-only,help -- "$@")
 retcode=$?
 if [ $retcode != 0 ]; then
     usage
@@ -712,6 +715,8 @@ while true; do
         # optional arguments
         -i|--info)
             INFO_MODE=true; shift ;;
+        --info-fail-on-updates)
+            INFO_FAIL_ON_UPDATES=true; shift ;;
 
         -e|--email)
             EMAIL_MODE=true;
@@ -788,6 +793,15 @@ fi
 
 if [ "$EMAIL_MODE" = false ] && [ -n "$EMAIL_TO" ]; then
     echo "Error: --email-to requires --email"
+    usage
+    exit 1
+fi
+
+#-----------------------------------------------------------------------------
+# Validate info option combinations
+#-----------------------------------------------------------------------------
+if [ "$INFO_FAIL_ON_UPDATES" = true ] && [ "$INFO_MODE" != true ]; then
+    echo "Error: --info-fail-on-updates requires --info"
     usage
     exit 1
 fi
@@ -1816,6 +1830,16 @@ fi  # End of PACKAGES_ONLY check
 
 # Exit if in info mode
 if [ "$INFO_MODE" = true ]; then
+    # Determine whether the checks that actually ran found any update, so
+    # --info-fail-on-updates can turn that into a non-zero exit code.
+    info_updates_found=false
+    if [ "$PACKAGES_ONLY" != true ] && [ "$os_update_avail" = true ]; then
+        info_updates_found=true
+    fi
+    if [ "$OS_ONLY" != true ] && [ ${#download_apps[@]} -gt 0 ]; then
+        info_updates_found=true
+    fi
+
     # Ensure proper termination with newline for non-email mode
     if [ "$EMAIL_MODE" = false ]; then
         printf "\n"
@@ -1838,6 +1862,9 @@ if [ "$INFO_MODE" = true ]; then
 
             if [ "$should_send_email" = false ]; then
                 [ "$DEBUG" = true ] && echo "[DEBUG] --email-updates-only set and no updates found. Skipping email."
+                if [ "$INFO_FAIL_ON_UPDATES" = true ] && [ "$info_updates_found" = true ]; then
+                    exit 1
+                fi
                 exit 0
             fi
         fi
@@ -1894,6 +1921,9 @@ EOF
             echo "Error: Failed to send email" >&2
             exit 1
         fi
+    fi
+    if [ "$INFO_FAIL_ON_UPDATES" = true ] && [ "$info_updates_found" = true ]; then
+        exit 1
     fi
     exit 0
 fi

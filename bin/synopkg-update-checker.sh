@@ -57,6 +57,208 @@ EOF
 }
 
 #-----------------------------------------------------------------------------
+# SECURITY HELPER FUNCTIONS
+# Keep untrusted metadata out of shell options, regexes, headers and HTML.
+#-----------------------------------------------------------------------------
+html_escape() {
+    local escaped="$1"
+    # The replacements MUST stay quoted: since bash 5.1 an unquoted '&' in the
+    # replacement of ${var//pat/repl} expands to the matched text, which would
+    # turn '<' into '<lt;' instead of '&lt;' and silently disable escaping.
+    escaped=${escaped//'&'/'&amp;'}
+    escaped=${escaped//'<'/'&lt;'}
+    escaped=${escaped//'>'/'&gt;'}
+    escaped=${escaped//'"'/'&quot;'}
+    escaped=${escaped//"'"/'&#39;'}
+    printf '%s' "$escaped"
+}
+
+html_attr_escape() {
+    html_escape "$1"
+}
+
+escape_ere() {
+    printf '%s' "$1" | sed 's/[][(){}.^$*+?|\\]/\\&/g'
+}
+
+lower_string() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+contains_token_ci() {
+    local haystack
+    local token
+    local token_lc
+
+    haystack=$(lower_string "$1")
+    shift
+
+    for token in "$@"; do
+        [ -n "$token" ] || continue
+        token_lc=$(lower_string "$token")
+        case "$haystack" in
+            *"$token_lc"*) return 0 ;;
+        esac
+    done
+
+    return 1
+}
+
+#-----------------------------------------------------------------------------
+# Function contains_delimited_token_ci()
+# Like contains_token_ci(), but the token must be delimited by a non
+# alphanumeric character (or a string boundary). Used for the generic
+# architecture markers, where a plain substring match is far too loose:
+# "all" would otherwise match "installer", "metallb" or "wallpaper" and could
+# select an SPK built for a different architecture.
+#-----------------------------------------------------------------------------
+contains_delimited_token_ci() {
+    local haystack
+    local token
+    local token_lc
+
+    haystack=$(lower_string "$1")
+    shift
+
+    for token in "$@"; do
+        [ -n "$token" ] || continue
+        token_lc=$(lower_string "$token")
+        case "$haystack" in
+            "$token_lc") return 0 ;;
+            "$token_lc"[!a-z0-9]*) return 0 ;;
+            *[!a-z0-9]"$token_lc") return 0 ;;
+            *[!a-z0-9]"$token_lc"[!a-z0-9]*) return 0 ;;
+        esac
+    done
+
+    return 1
+}
+
+is_safe_header_value() {
+    local value="$1"
+    [[ "$value" != *$'\r'* && "$value" != *$'\n'* ]]
+}
+
+validate_header_value() {
+    local label="$1"
+    local value="$2"
+
+    if ! is_safe_header_value "$value"; then
+        echo "Error: Unsafe $label contains a newline or carriage return." >&2
+        return 1
+    fi
+
+    return 0
+}
+
+is_safe_https_url() {
+    local url="$1"
+
+    [[ "$url" == https://* ]] || return 1
+    [[ "$url" != -* ]] || return 1
+    [[ "$url" != *$'\r'* && "$url" != *$'\n'* && "$url" != *$'\t'* && "$url" != *" "* ]] || return 1
+    return 0
+}
+
+is_url_from_host() {
+    local url="$1"
+    local host="$2"
+
+    is_safe_https_url "$url" || return 1
+    case "$url" in
+        "https://${host}/"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_allowed_package_download_url() {
+    local url="$1"
+
+    is_url_from_host "$url" "archive.synology.com" ||
+        is_url_from_host "$url" "global.synologydownload.com" ||
+        is_url_from_host "$url" "packages.synocommunity.com" ||
+        is_url_from_host "$url" "github.com"
+}
+
+normalize_synology_archive_url() {
+    local url="$1"
+
+    if [[ "$url" =~ ^/ ]]; then
+        url="https://archive.synology.com${url}"
+    fi
+
+    if is_url_from_host "$url" "archive.synology.com" ||
+       is_url_from_host "$url" "global.synologydownload.com"; then
+        printf '%s' "$url"
+        return 0
+    fi
+
+    return 1
+}
+
+curl_fetch() {
+    local url="$1"
+
+    is_safe_https_url "$url" || return 1
+    curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 --retry 2 -- "$url"
+}
+
+curl_fetch_github_api() {
+    local url="$1"
+
+    is_url_from_host "$url" "api.github.com" || return 1
+    curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 --retry 2 -H "Accept: application/vnd.github+json" -- "$url"
+}
+
+curl_download() {
+    local url="$1"
+    local output_file="$2"
+
+    is_allowed_package_download_url "$url" || return 1
+    curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 300 --retry 2 -o "$output_file" -- "$url"
+}
+
+curl_download_with_progress() {
+    local url="$1"
+    local output_file="$2"
+
+    is_allowed_package_download_url "$url" || return 1
+    curl -fL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 300 --retry 2 --progress-bar -o "$output_file" -- "$url"
+}
+
+curl_download_range() {
+    local url="$1"
+    local output_file="$2"
+
+    is_allowed_package_download_url "$url" || return 1
+    curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 --retry 2 --range 0-2097151 -o "$output_file" -- "$url"
+}
+
+wget_download() {
+    local url="$1"
+    local output_file="$2"
+
+    is_allowed_package_download_url "$url" || return 1
+    if wget --help 2>&1 | grep -q -- '--https-only'; then
+        wget -q --https-only -O "$output_file" -- "$url"
+    else
+        wget -q -O "$output_file" -- "$url"
+    fi
+}
+
+spk_matches_current_system() {
+    local spk_name="$1"
+
+    # The concrete architecture/platform markers are embedded in the file name
+    # (e.g. "app-x86_64-1.0.spk"), so a substring match is what we want there.
+    contains_token_ci "$spk_name" "$package_arch" "$platform_name" "$arch" && return 0
+
+    # The generic "any architecture" markers need a delimited match so they
+    # cannot latch onto an unrelated word in the file name.
+    contains_delimited_token_ci "$spk_name" "noarch" "universal" "all"
+}
+
+#-----------------------------------------------------------------------------
 # Function get_package_distributor()
 # Extract distributor or maintainer information from package INFO file
 # Returns: distributor (if present) or maintainer name, or "Unknown" if not found
@@ -327,25 +529,28 @@ get_spk_min_os_version() {
     local min_os_version
     local tmp_spk_file
 
+    if ! is_allowed_package_download_url "$spk_url"; then
+        [ "$DEBUG" = true ] && echo "[DEBUG] Refusing unsafe SPK metadata URL: $spk_url"
+        echo ""
+        return
+    fi
+
     tmp_spk_file=$(mktemp /tmp/spk_meta.XXXXXX 2>/dev/null)
     if [ -z "$tmp_spk_file" ]; then
-        tmp_spk_file="/tmp/spk_meta_$$.tmp"
-        : > "$tmp_spk_file" 2>/dev/null || {
-            [ "$DEBUG" = true ] && echo "[DEBUG] Could not create temp file for SPK metadata extraction"
-            echo ""
-            return
-        }
+        [ "$DEBUG" = true ] && echo "[DEBUG] Could not create secure temp file for SPK metadata extraction"
+        echo ""
+        return
     fi
 
     # Try ranged fetch first (fast) and parse from local file.
-    if curl -fsSL --range 0-2097151 "$spk_url" -o "$tmp_spk_file" 2>/dev/null; then
+    if curl_download_range "$spk_url" "$tmp_spk_file" 2>/dev/null; then
         min_os_version=$(extract_min_os_from_file "$tmp_spk_file")
     else
         [ "$DEBUG" = true ] && echo "[DEBUG] Ranged download failed for SPK metadata extraction: $spk_url"
     fi
 
     # If not found, try full download with curl and parse from local file.
-    if [ -z "$min_os_version" ] && curl -fsSL "$spk_url" -o "$tmp_spk_file" 2>/dev/null; then
+    if [ -z "$min_os_version" ] && curl_download "$spk_url" "$tmp_spk_file" 2>/dev/null; then
         min_os_version=$(extract_min_os_from_file "$tmp_spk_file")
     elif [ -z "$min_os_version" ]; then
         [ "$DEBUG" = true ] && echo "[DEBUG] Full curl download failed for SPK metadata extraction: $spk_url"
@@ -353,7 +558,7 @@ get_spk_min_os_version() {
 
     # Final fallback: full download with wget and parse from local file.
     if [ -z "$min_os_version" ] && command -v wget >/dev/null 2>&1; then
-        if wget -q -O "$tmp_spk_file" "$spk_url" 2>/dev/null; then
+        if wget_download "$spk_url" "$tmp_spk_file" 2>/dev/null; then
             min_os_version=$(extract_min_os_from_file "$tmp_spk_file")
         else
             [ "$DEBUG" = true ] && echo "[DEBUG] Full wget download failed for SPK metadata extraction: $spk_url"
@@ -416,8 +621,10 @@ convert_urls_to_html_links() {
         filename="${BASH_REMATCH[3]}"
         # URL decode the filename (e.g., %2B -> +)
         decoded_filename=$(echo "$filename" | sed 's/%2B/+/g; s/%20/ /g; s/%2F/\//g')
-        replacement="Download Link: <a href='${url}' style='color: #0066cc; text-decoration: none;'>${os_name}_${os_latest}_${decoded_filename}</a>"
-        result="${result//${full_match}/${replacement}}"
+        replacement="Download Link: <a href='$(html_attr_escape "$url")' style='color: #0066cc; text-decoration: none;'>$(html_escape "${os_name}_${os_latest}_${decoded_filename}")</a>"
+        # Both sides stay quoted: unquoted the pattern would be treated as a
+        # glob, and an '&' in the replacement would expand to the match.
+        result="${result//"$full_match"/"$replacement"}"
     done
 
     # Convert package download links in table format
@@ -431,9 +638,10 @@ convert_urls_to_html_links() {
             # Replace the URL with a clickable link using app name and version
             # Construct the replacement string separately to avoid expansion issues
             link_text="${app_name}_${version}"
-            anchor_tag="<a href='${url}' style='color: #0066cc; text-decoration: none;'>${link_text}</a>"
-            # Use sed for more reliable replacement
-            new_line=$(echo "$line" | sed "s|${url}|${anchor_tag}|")
+            anchor_tag="<a href='$(html_attr_escape "$url")' style='color: #0066cc; text-decoration: none;'>$(html_escape "$link_text")</a>"
+            prefix="${line%%"$url"*}"
+            suffix="${line#*"$url"}"
+            new_line="${prefix}${anchor_tag}${suffix}"
             processed_result+="${new_line}"$'\n'
         else
             processed_result+="${line}"$'\n'
@@ -537,6 +745,21 @@ send_email() {
         fi
     fi
 
+    if ! validate_header_value "recipient email address" "$recipient" || [[ "$recipient" == -* ]]; then
+        echo "Error: Recipient email address is not safe for email headers." >&2
+        return 1
+    fi
+    if ! validate_header_value "sender name" "$smtp_from_name" ||
+       ! validate_header_value "sender email address" "$smtp_from_mail" ||
+       ! validate_header_value "SMTP server" "$smtp_server" ||
+       ! validate_header_value "SMTP port" "$smtp_port" ||
+       ! validate_header_value "SMTP user" "$smtp_user" ||
+       ! validate_header_value "SMTP password" "$smtp_pass" ||
+       ! validate_header_value "subject prefix" "$subject_prefix" ||
+       ! validate_header_value "subject" "$subject"; then
+        return 1
+    fi
+
     # Build From header with name if available
     local from_header
     if [ -n "$smtp_from_name" ]; then
@@ -547,6 +770,9 @@ send_email() {
 
     # Add subject prefix if configured
     local full_subject="${subject_prefix}${subject}"
+    if ! validate_header_value "full subject" "$full_subject"; then
+        return 1
+    fi
 
     # Use HTML_OUTPUT if available (proper HTML tables), otherwise convert plain text
     local html_body
@@ -616,7 +842,22 @@ $HTML_OUTPUT
     # Check if ssmtp is available
     if command -v ssmtp &> /dev/null; then
         # Configure ssmtp on-the-fly using DSM settings
-        local ssmtp_conf="/tmp/ssmtp_$$.conf"
+        local ssmtp_conf
+        local old_umask
+        old_umask=$(umask)
+        umask 077
+        ssmtp_conf=$(mktemp /tmp/ssmtp.XXXXXX 2>/dev/null)
+        if [ -z "$ssmtp_conf" ]; then
+            umask "$old_umask"
+            echo "Error: Could not create temporary ssmtp config." >&2
+            return 1
+        fi
+        chmod 600 "$ssmtp_conf" 2>/dev/null || {
+            umask "$old_umask"
+            rm -f "$ssmtp_conf"
+            echo "Error: Could not secure temporary ssmtp config." >&2
+            return 1
+        }
         cat > "$ssmtp_conf" <<EOF
 root=$smtp_from_mail
 mailhub=$smtp_server:$smtp_port
@@ -639,6 +880,12 @@ EOF
                 echo "AuthPass=$smtp_pass" >> "$ssmtp_conf"
             fi
         fi
+        umask "$old_umask"
+        chmod 600 "$ssmtp_conf" 2>/dev/null || {
+            rm -f "$ssmtp_conf"
+            echo "Error: Could not secure temporary ssmtp config." >&2
+            return 1
+        }
 
         [ "$DEBUG" = true ] && echo "[DEBUG] Using ssmtp with config: $ssmtp_conf"
         if [ "$DEBUG" = true ]; then
@@ -908,15 +1155,21 @@ EOF
 
     # Build HTML table for email
     if [ "$EMAIL_MODE" = true ]; then
+        product_html=$(html_escape "$product")
+        model_html=$(html_escape "$model")
+        arch_html=$(html_escape "$arch")
+        platform_name_html=$(html_escape "$platform_name")
+        os_name_html=$(html_escape "$os_name")
+        os_display_version_html=$(html_escape "$os_display_version")
         HTML_OUTPUT+="<h2>1. System Information</h2>"
         HTML_OUTPUT+="<table style='border-collapse: collapse; width: 100%; margin-bottom: 20px;'>"
         HTML_OUTPUT+="<tr><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 48%;'>Property</th><th style='border: 1px solid #ddd; padding: 8px; background-color: #90EE90; text-align: left; width: 52%;'>Value</th></tr>"
-        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Product</td><td style='border: 1px solid #ddd; padding: 4px;'>$product</td></tr>"
-        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Model</td><td style='border: 1px solid #ddd; padding: 4px;'>$model</td></tr>"
-        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Architecture</td><td style='border: 1px solid #ddd; padding: 4px;'>$arch</td></tr>"
-        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Platform Name</td><td style='border: 1px solid #ddd; padding: 4px;'>$platform_name</td></tr>"
-        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Operating System</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_name</td></tr>"
-        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Version</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_display_version</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Product</td><td style='border: 1px solid #ddd; padding: 4px;'>$product_html</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Model</td><td style='border: 1px solid #ddd; padding: 4px;'>$model_html</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Architecture</td><td style='border: 1px solid #ddd; padding: 4px;'>$arch_html</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Platform Name</td><td style='border: 1px solid #ddd; padding: 4px;'>$platform_name_html</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Operating System</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_name_html</td></tr>"
+        HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>Version</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_display_version_html</td></tr>"
         HTML_OUTPUT+="</table>"
     fi
 else
@@ -981,7 +1234,8 @@ fi
 # Fetch the OS archive page and parse for available versions
 #-----------------------------------------------------------------------------
 os_archive_url="https://archive.synology.com/download/Os/$os_name"
-os_archive_html=$(curl -s "$os_archive_url")
+os_archive_html=$(curl_fetch "$os_archive_url")
+os_archive_fetch_status=$?
 
 #-----------------------------------------------------------------------------
 # Initialize variables before the loop
@@ -994,8 +1248,8 @@ os_pat=""
 #-----------------------------------------------------------------------------
 # Parse available OS versions and check for updates
 #-----------------------------------------------------------------------------
-if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_name/"; then
-    all_os_versions=$(echo "$os_archive_html" | sed -n 's|.*href="/download/Os/'$os_name'/\([0-9][0-9.+-]*\)".*|\1|p' | sort -V -r)
+if [ $os_archive_fetch_status -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_name/"; then
+    all_os_versions=$(echo "$os_archive_html" | sed -n 's|.*href="/download/Os/'"$os_name"'/\([0-9][0-9.+-]*\)".*|\1|p' | sort -V -r)
 
     # Normalize installed version for comparison (add -0 if missing smallfix)
     os_installed_version_normalized="$os_installed_version"
@@ -1025,7 +1279,7 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                 [ "$DEBUG" = true ] && echo "[DEBUG] Archive version is NEWER, checking for .pat file..."
                 # Newer version found, now check for model compatibility
                 os_version_url="https://archive.synology.com/download/Os/$os_name/$os_version"
-                os_version_html=$(curl -s "$os_version_url")
+                os_version_html=$(curl_fetch "$os_version_url")
 
                 # Debug: show all .pat files found
                 [ "$DEBUG" = true ] && echo "[DEBUG] All .pat files in $os_version:" && echo "$os_version_html" | grep -o 'href="[^"]*\.pat"' | sed 's/href="//;s/"//'
@@ -1035,11 +1289,14 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                 model_series="${model_series#RS}"
 
                 # Escape special characters in model name for grep
-                model_escaped=$(echo "$model" | sed 's/[+]/\\&/g')
-                model_series_escaped=$(echo "$model_series" | sed 's/[+]/\\&/g')
+                model_escaped=$(escape_ere "$model")
+                model_series_escaped=$(escape_ere "$model_series")
+                platform_name_escaped=$(escape_ere "$platform_name")
                 # Convert to lowercase for case-insensitive matching
                 model_lower=$(echo "$model" | tr '[:upper:]' '[:lower:]')
                 model_series_lower=$(echo "$model_series" | tr '[:upper:]' '[:lower:]')
+                model_lower_escaped=$(escape_ere "$model_lower")
+                model_series_lower_escaped=$(escape_ere "$model_series_lower")
 
                 # Debug: show extracted model info
                 [ "$DEBUG" = true ] && echo "[DEBUG] Model: $model"
@@ -1052,9 +1309,9 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                 # Major releases as versions like 7.3.2-86009 use the model name directly (e.g., DS1817+)
                 # Patch releases as versions like 7.3.2-86009-1 use the platform name with underscore (e.g., $platform_name_1817+)
                 # For VirtualDSM, prioritize platform_name match (e.g., synology_kvmx64_virtualdsm.pat)
-                if echo "$os_version_html" | grep -qiE "($model_escaped|_${model_series_escaped})|_${platform_name}(_|.*(${model_lower}|${model_series_lower})).*\.pat"; then
+                if echo "$os_version_html" | grep -qiE "($model_escaped|_${model_series_escaped})|_${platform_name_escaped}(_|.*(${model_lower_escaped}|${model_series_lower_escaped})).*\.pat"; then
                     # Extract all .pat filenames and filter for our model/platform
-                    os_pat=$(echo "$os_version_html" | grep -oE '[a-zA-Z0-9_+-]+\.pat' | grep -iE "($model_escaped|_${model_series_escaped}|_${platform_name})" | head -1)
+                    os_pat=$(echo "$os_version_html" | grep -oE '[a-zA-Z0-9_+-]+\.pat' | grep -iE "($model_escaped|_${model_series_escaped}|_${platform_name_escaped})" | head -1)
                     [ "$DEBUG" = true ] && echo "[DEBUG] Found .pat file: $os_pat"
                     os_latest="$os_version"
                     os_update_avail=true
@@ -1063,16 +1320,18 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
                     # First, get all .pat URLs, then filter for our model
                     model_series_url_encoded="${model_series//+/%2B}"
                     model_url_encoded="${model//+/%2B}"
+                    model_series_url_encoded_escaped=$(escape_ere "$model_series_url_encoded")
+                    model_url_encoded_escaped=$(escape_ere "$model_url_encoded")
                     # For VirtualDSM and similar, prioritize platform_name in URL matching
-                    os_url=$(echo "$os_version_html" | grep -o 'href="[^"]*\.pat"' | grep -iE "(${model_url_encoded}|_${model_series_url_encoded}|_${platform_name})" | head -1 | sed 's|href="||;s|"||')
+                    os_url=$(echo "$os_version_html" | grep -o 'href="[^"]*\.pat"' | grep -iE "(${model_url_encoded_escaped}|_${model_series_url_encoded_escaped}|_${platform_name_escaped})" | head -1 | sed 's|href="||;s|"||')
                     [ "$DEBUG" = true ] && echo "[DEBUG] Extracted os_url (raw): '$os_url'"
 
-                    # Prepend domain if URL is relative
-                    if [[ "$os_url" =~ ^/ ]]; then
-                        os_url="https://archive.synology.com${os_url}"
-                        [ "$DEBUG" = true ] && echo "[DEBUG] URL was relative, prepended domain: '$os_url'"
-                    else
-                        [ "$DEBUG" = true ] && echo "[DEBUG] URL is absolute or empty: '$os_url'"
+                    # Prepend domain if URL is relative and reject off-domain/unsafe URLs.
+                    if ! os_url=$(normalize_synology_archive_url "$os_url"); then
+                        [ "$DEBUG" = true ] && echo "[DEBUG] Rejected unsafe OS update URL: '$os_url'"
+                        os_url=""
+                        os_update_avail=false
+                        continue
                     fi
                     [ "$DEBUG" = true ] && echo "[DEBUG] Update available! Latest: $os_latest"
                     [ "$DEBUG" = true ] && echo "[DEBUG] Final os_url: '$os_url'"
@@ -1106,20 +1365,23 @@ if [ $? -eq 0 ] && echo "$os_archive_html" | grep -q "href=\"/download/Os/$os_na
 
         # Add row to HTML table for email
         if [ "$EMAIL_MODE" = true ]; then
+            os_name_html=$(html_escape "$os_name")
+            os_display_version_html=$(html_escape "$os_display_version")
+            os_latest_html=$(html_escape "$os_latest")
             # Convert update status to icon for HTML
             if [ "$os_update_avail" = true ]; then
                 update_icon="<span style='font-size: 14px;'>🔴</span>"
                 # Make latest version clickable if download URL is available
                 if [ -n "$os_url" ]; then
-                    os_latest_display="<a href='$os_url' style='color: #0066cc; text-decoration: none;'>$os_latest</a>"
+                    os_latest_display="<a href='$(html_attr_escape "$os_url")' style='color: #0066cc; text-decoration: none;'>$os_latest_html</a>"
                 else
-                    os_latest_display="$os_latest"
+                    os_latest_display="$os_latest_html"
                 fi
             else
                 update_icon="<span style='font-size: 14px; color: #51CF66;'>🟢</span>"
-                os_latest_display="$os_latest"
+                os_latest_display="$os_latest_html"
             fi
-            HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$os_name</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_display_version</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_latest_display</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
+            HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$os_name_html</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_display_version_html</td><td style='border: 1px solid #ddd; padding: 4px;'>$os_latest_display</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
             HTML_OUTPUT+="</table>"
         fi
 
@@ -1248,6 +1510,9 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
     fi
     # Get package-specific architecture
     package_arch=$(synogetkeyvalue "/var/packages/${app}/INFO" arch)
+    package_arch_escaped=$(escape_ere "$package_arch")
+    platform_name_escaped=$(escape_ere "$platform_name")
+    arch_escaped=$(escape_ere "$arch")
     [ "$DEBUG" = true ] && echo "[DEBUG] Package: $app, Maintainer: $pkg_distributor, Arch: $package_arch"
 
     # Apply source filters
@@ -1281,7 +1546,7 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
     ((total_installed_packages++))
 
     # Identify currently installed revision
-    installed_revision=$(synopkg version $app)
+    installed_revision=$(synopkg version "$app")
 
     # Initialize variables for this package iteration
     latest_revision="$installed_revision"
@@ -1298,15 +1563,15 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
     if is_official_package "$app"; then
         archive_url="https://archive.synology.com/download/Package/$app"
         [ "$DEBUG" = true ] && echo "[DEBUG] Checking Synology archive server: $archive_url"
-        archive_html=$(curl -s "$archive_url")
+        archive_html=$(curl_fetch "$archive_url")
     else
         # For community packages, skip Synology archive check
         archive_html=""
     fi
 
-    if [ -n "$archive_html" ] && echo "$archive_html" | grep -q "href=\"/download/Package/$app/"; then
+    if [ -n "$archive_html" ] && echo "$archive_html" | grep -Fq "href=\"/download/Package/$app/"; then
         # Extract all version folders, sort numerically descending (latest first)
-        all_versions=$(echo "$archive_html" | sed -n 's|.*href="/download/Package/'$app'/\([0-9][0-9.+-]*\)".*|\1|p' | sort -V -r)
+        all_versions=$(echo "$archive_html" | grep -F "href=\"/download/Package/$app/" | sed -n 's|.*href="/download/Package/[^/]*/\([0-9][0-9.+-]*\)".*|\1|p' | sort -V -r)
         found=""
         for version in $all_versions; do
             [ "$DEBUG" = true ] && echo "[DEBUG] Checking version: $version (installed: $installed_revision)"
@@ -1317,20 +1582,21 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
 
                 # Check if there's an SPK for the current architecture and OS
                 version_url="https://archive.synology.com/download/Package/$app/$version"
-                version_html=$(curl -s "$version_url")
+                version_html=$(curl_fetch "$version_url")
 
                 [ "$DEBUG" = true ] && echo "[DEBUG] Looking for SPK with arch=$package_arch OR platform=$platform_name"
 
                 if [ "$os_name" = "BSM" ]; then
-                    if echo "$version_html" | grep -qiE "BSM.*(${package_arch}|${platform_name}).*\.spk"; then
+                    if echo "$version_html" | grep -qiE "BSM.*(${package_arch_escaped}|${platform_name_escaped}).*\.spk"; then
                         latest_revision="$version"
                         # grep the name of the spk file - check both arch and platform
-                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*BSM[^/\"']*(${package_arch}|${platform_name})[^\"']*\.spk" | head -1)
-                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*BSM[^\"']*(${package_arch}|${platform_name})[^\"']*\.spk\"" | head -1 | sed 's|href=\"||;s|\"||')
+                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*BSM[^/\"']*(${package_arch_escaped}|${platform_name_escaped})[^\"']*\.spk" | head -1)
+                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*BSM[^\"']*(${package_arch_escaped}|${platform_name_escaped})[^\"']*\.spk\"" | head -1 | sed 's|href=\"||;s|\"||')
 
-                        # If URL is found, prepend domain if relative
-                        if [ -n "$url" ] && [[ "$url" =~ ^/ ]]; then
-                            url="https://archive.synology.com${url}"
+                        # If URL is found, prepend domain if relative and reject off-domain/unsafe URLs.
+                        if ! url=$(normalize_synology_archive_url "$url"); then
+                            [ "$DEBUG" = true ] && echo "[DEBUG] Rejected unsafe BSM package URL for $app"
+                            continue
                         fi
 
                         if ! is_spk_compatible_with_os "$url"; then
@@ -1360,15 +1626,16 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                     fi
                 else
                     # Check for DSM packages - look for arch OR platform_name, but exclude BSM
-                    if echo "$version_html" | grep -qiE "(${package_arch}|${platform_name}).*\.spk" && ! echo "$version_html" | grep -q "BSM"; then
+                    if echo "$version_html" | grep -qiE "(${package_arch_escaped}|${platform_name_escaped}).*\.spk" && ! echo "$version_html" | grep -q "BSM"; then
                         latest_revision="$version"
                         # grep the name of the spk file - check both arch and platform
-                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*[-](${package_arch}|${platform_name})[-][^\"']*\.spk" | head -1)
-                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*(${package_arch}|${platform_name})[^\"']*\.spk\"" | head -1 | sed 's|href=\"||;s|\"||')
+                        spk=$(echo "$version_html" | grep -oiE "[^/\"']*[-](${package_arch_escaped}|${platform_name_escaped})[-][^\"']*\.spk" | head -1)
+                        url=$(echo "$version_html" | grep -oE "href=\"[^\"']*/download/Package/spk/[^\"']*(${package_arch_escaped}|${platform_name_escaped})[^\"']*\.spk\"" | head -1 | sed 's|href=\"||;s|\"||')
 
-                        # If URL is found, prepend domain if relative
-                        if [ -n "$url" ] && [[ "$url" =~ ^/ ]]; then
-                            url="https://archive.synology.com${url}"
+                        # If URL is found, prepend domain if relative and reject off-domain/unsafe URLs.
+                        if ! url=$(normalize_synology_archive_url "$url"); then
+                            [ "$DEBUG" = true ] && echo "[DEBUG] Rejected unsafe DSM package URL for $app"
+                            continue
                         fi
 
                         if ! is_spk_compatible_with_os "$url"; then
@@ -1422,9 +1689,10 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                         # Check SynoCommunity package page
                         synocommunity_pkg_url="https://synocommunity.com/package/$app"
                         [ "$DEBUG" = true ] && echo "[DEBUG] Checking SynoCommunity server: $synocommunity_pkg_url"
-                        synocommunity_pkg_html=$(curl -s "$synocommunity_pkg_url")
+                        synocommunity_pkg_html=$(curl_fetch "$synocommunity_pkg_url")
+                        synocommunity_fetch_status=$?
 
-                        if [ $? -eq 0 ] && ! echo "$synocommunity_pkg_html" | grep -q "404\|Not Found\|not found"; then
+                        if [ $synocommunity_fetch_status -eq 0 ] && ! echo "$synocommunity_pkg_html" | grep -q "404\|Not Found\|not found"; then
                             [ "$DEBUG" = true ] && echo "[DEBUG] Found $app in SynoCommunity"
 
                             # Extract version numbers from <dt>Version X.Y.Z-N</dt> tags
@@ -1457,23 +1725,28 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                                     # First try with platform_name (e.g., kvmx64)
                                     if [ -n "$firmware_code" ]; then
                                         spk_url=$(echo "$synocommunity_pkg_html" | grep -oP 'href="\Khttps://packages\.synocommunity\.com[^"]*\.spk' | \
-                                                  grep "$firmware_code" | grep -i "\[$platform_name\]\|$platform_name-\|$platform_name\]" | head -1)
+                                                  grep -F -e "$firmware_code" | grep -iE -e "\[$platform_name_escaped\]|$platform_name_escaped-|$platform_name_escaped\]" | head -1)
                                     fi
 
                                     if [ -z "$spk_url" ] && [ -n "$firmware_code" ]; then
                                         # Try with architecture if platform_name didn't work (e.g., x86_64)
                                         spk_url=$(echo "$synocommunity_pkg_html" | grep -oP 'href="\Khttps://packages\.synocommunity\.com[^"]*\.spk' | \
-                                                  grep "$firmware_code" | grep -i "\[$arch\]\|$arch-\|$arch\]" | head -1)
+                                                  grep -F -e "$firmware_code" | grep -iE -e "\[$arch_escaped\]|$arch_escaped-|$arch_escaped\]" | head -1)
                                     fi
 
                                     if [ -z "$spk_url" ]; then
                                         # Fallback: try without firmware code filter (just platform/arch)
                                         spk_url=$(echo "$synocommunity_pkg_html" | grep -oP 'href="\Khttps://packages\.synocommunity\.com[^"]*\.spk' | \
-                                                  grep -i "$platform_name" | head -1)
+                                                  grep -iF -e "$platform_name" | head -1)
                                     fi
 
                                     if [ -n "$spk_url" ]; then
-                                        spk=$(basename "$spk_url")
+                                        if ! is_url_from_host "$spk_url" "packages.synocommunity.com"; then
+                                            [ "$DEBUG" = true ] && echo "[DEBUG] Rejected unsafe SynoCommunity package URL for $app: $spk_url"
+                                            continue
+                                        fi
+
+                                        spk=$(basename -- "$spk_url")
                                         # URL decode the filename
                                         spk=$(echo "$spk" | sed 's/%5B/[/g; s/%5D/]/g')
 
@@ -1527,31 +1800,50 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
                         [ "$DEBUG" = true ] && echo "[DEBUG] GitHub owner: $github_owner, repo: $github_repo"
 
                         if [ -n "$github_owner" ] && [ -n "$github_repo" ]; then
+                            # Owner/repo are pasted into an api.github.com path,
+                            # so they must be plain path segments. Reject "."
+                            # and ".." (curl resolves them and would rewrite the
+                            # request path) as well as leading "-" or ".".
+                            if [[ ! "$github_owner" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ||
+                                  ! "$github_repo" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]]; then
+                                [ "$DEBUG" = true ] && echo "[DEBUG] Rejected unsafe GitHub owner/repo from: $pkg_distributor"
+                                continue
+                            fi
+
                             github_api_url="https://api.github.com/repos/$github_owner/$github_repo/releases/latest"
                             [ "$DEBUG" = true ] && echo "[DEBUG] Checking GitHub API: $github_api_url"
-                            github_api_response=$(curl -s -H "Accept: application/vnd.github+json" "$github_api_url")
+                            github_api_response=$(curl_fetch_github_api "$github_api_url")
+                            github_api_status=$?
 
-                            if [ $? -eq 0 ] && echo "$github_api_response" | grep -q '"tag_name"'; then
+                            if [ $github_api_status -eq 0 ]; then
                                 # Extract tag name and strip leading 'v'
-                                github_tag=$(echo "$github_api_response" | grep -oP '"tag_name"\s*:\s*"\K[^"]+')
+                                github_tag=$(printf '%s\n' "$github_api_response" | jq -r '.tag_name // empty' 2>/dev/null)
                                 github_version=$(echo "$github_tag" | sed 's/^v//')
                                 [ "$DEBUG" = true ] && echo "[DEBUG] GitHub latest tag: $github_tag, version: $github_version"
 
                                 # Check if version is newer than installed
-                                if [[ "$github_version" != "$installed_revision" ]] && [[ $(printf '%s\n%s' "$installed_revision" "$github_version" | sort -V | head -1) == "$installed_revision" ]]; then
+                                if [ -n "$github_version" ] && [[ "$github_version" != "$installed_revision" ]] && [[ $(printf '%s\n%s' "$installed_revision" "$github_version" | sort -V | head -1) == "$installed_revision" ]]; then
                                     [ "$DEBUG" = true ] && echo "[DEBUG] Found newer GitHub version: $github_version"
 
-                                    # Find matching .spk asset for our architecture/platform
-                                    spk_url=$(echo "$github_api_response" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]+\.spk' | \
-                                              grep -i "$platform_name\|$package_arch\|$arch" | head -1)
+                                    # Find a matching .spk asset for our architecture/platform.
+                                    # Do not fall back to the first asset; that can install the wrong architecture.
+                                    spk_url=""
+                                    while IFS= read -r candidate_spk_url; do
+                                        [ -n "$candidate_spk_url" ] || continue
+                                        if ! is_url_from_host "$candidate_spk_url" "github.com"; then
+                                            [ "$DEBUG" = true ] && echo "[DEBUG] Rejected unsafe GitHub asset URL: $candidate_spk_url"
+                                            continue
+                                        fi
 
-                                    if [ -z "$spk_url" ]; then
-                                        # Fallback: take any .spk if no arch-specific one found
-                                        spk_url=$(echo "$github_api_response" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]+\.spk' | head -1)
-                                    fi
+                                        candidate_spk=$(basename -- "$candidate_spk_url")
+                                        if spk_matches_current_system "$candidate_spk"; then
+                                            spk_url="$candidate_spk_url"
+                                            break
+                                        fi
+                                    done < <(printf '%s\n' "$github_api_response" | jq -r '.assets[]?.browser_download_url // empty' 2>/dev/null | grep -i '\.spk$')
 
                                     if [ -n "$spk_url" ]; then
-                                        spk=$(basename "$spk_url")
+                                        spk=$(basename -- "$spk_url")
 
                                         if ! is_spk_compatible_with_os "$spk_url"; then
                                             if [ "$latest_available_found" = false ]; then
@@ -1614,39 +1906,52 @@ for app in $(synopkg list --name | LC_ALL=C sort -f); do
 
         # Add row to HTML table for email
         if [ "$EMAIL_MODE" = true ]; then
+            app_html=$(html_escape "$app")
+            pkg_distributor_html=$(html_escape "$pkg_distributor")
+            installed_revision_html=$(html_escape "$installed_revision")
+            latest_revision_html=$(html_escape "$latest_revision")
+            latest_available_revision_html=$(html_escape "$latest_available_revision")
+            latest_available_min_os_req_html=$(html_escape "$latest_available_min_os_req")
             # Convert update status to icon for HTML
             if [ "$update_avail" = "X" ]; then
                 update_icon="<span style='font-size: 14px;'>🔴</span>"
                 # Make latest compatible version clickable if download URL is available
                 if [ -n "$url" ]; then
-                    latest_revision_display="<a href='$url' style='color: #0066cc; text-decoration: none;'>$latest_revision</a>"
+                    latest_revision_display="<a href='$(html_attr_escape "$url")' style='color: #0066cc; text-decoration: none;'>$latest_revision_html</a>"
                 else
-                    latest_revision_display="$latest_revision"
+                    latest_revision_display="$latest_revision_html"
                 fi
             else
                 update_icon="<span style='font-size: 14px; color: #51CF66;'>🟢</span>"
-                latest_revision_display="$latest_revision"
+                latest_revision_display="$latest_revision_html"
             fi
 
             if [ -n "$latest_available_url" ]; then
-                latest_available_display="<a href='$latest_available_url' style='color: #0066cc; text-decoration: none;'>$latest_available_revision</a>"
+                latest_available_display="<a href='$(html_attr_escape "$latest_available_url")' style='color: #0066cc; text-decoration: none;'>$latest_available_revision_html</a>"
             else
-                latest_available_display="$latest_available_revision"
+                latest_available_display="$latest_available_revision_html"
             fi
 
-            # Add visual indicator for package source
+            # Add visual indicator for package source.
+            # The distributor string comes from a package INFO file, so it is
+            # escaped before it reaches the HTML, and it is only turned into a
+            # link when it really is an https://github.com/ URL.
             if is_official_package "$app"; then
                 # Official package - blue badge with source name
-                source_display="<span style='background-color: #1E90FF; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>🏢 OFFICIAL</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor</span>"
-            elif echo "$pkg_distributor" | grep -qi "github\.com"; then
+                source_display="<span style='background-color: #1E90FF; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>🏢 OFFICIAL</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor_html</span>"
+            elif is_url_from_host "$pkg_distributor" "github.com"; then
                 # GitHub package - muted golden badge
-                source_display="<span style='background-color: #B8860B; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>🐙 GITHUB</span><br><span style='font-size: 10px; color: #666;'><a href='$pkg_distributor' style='color: #0066cc; text-decoration: none;'>GitHub.com</a></span>"
+                source_display="<span style='background-color: #B8860B; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>🐙 GITHUB</span><br><span style='font-size: 10px; color: #666;'><a href='$(html_attr_escape "$pkg_distributor")' style='color: #0066cc; text-decoration: none;'>GitHub.com</a></span>"
+            elif echo "$pkg_distributor" | grep -qi "github\.com"; then
+                # Looks like GitHub, but not a plain https://github.com/ URL:
+                # keep the badge, show the distributor as inert escaped text.
+                source_display="<span style='background-color: #B8860B; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>🐙 GITHUB</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor_html</span>"
             else
                 # Community package - purple badge with source name
-                source_display="<span style='background-color: #9B59B6; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>👥 COMMUNITY</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor</span>"
+                source_display="<span style='background-color: #9B59B6; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;'>👥 COMMUNITY</span><br><span style='font-size: 10px; color: #666;'>$pkg_distributor_html</span>"
             fi
 
-            HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$app</td><td style='border: 1px solid #ddd; padding: 4px;'>$source_display</td><td style='border: 1px solid #ddd; padding: 4px;'>$installed_revision</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_revision_display</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_available_display</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_available_min_os_req</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
+            HTML_OUTPUT+="<tr><td style='border: 1px solid #ddd; padding: 4px;'>$app_html</td><td style='border: 1px solid #ddd; padding: 4px;'>$source_display</td><td style='border: 1px solid #ddd; padding: 4px;'>$installed_revision_html</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_revision_display</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_available_display</td><td style='border: 1px solid #ddd; padding: 4px;'>$latest_available_min_os_req_html</td><td style='border: 1px solid #ddd; padding: 4px; text-align: center;'>$update_icon</td></tr>"
         fi
 
         # Add download link right after the table if update is available
@@ -1933,7 +2238,12 @@ download_package_file() {
         return 1
     fi
 
-    selected_file="$download_dir_pkg/$(basename "$url")"
+    if ! is_allowed_package_download_url "$url"; then
+        echo "Error: Refusing unsafe download URL for package $app_name: $url"
+        return 1
+    fi
+
+    selected_file="$download_dir_pkg/$(basename -- "$url")"
 
     if [ -f "$selected_file" ]; then
         [ "$DEBUG" = true ] && echo "[DEBUG] Reusing already downloaded file: $selected_file"
@@ -1950,8 +2260,7 @@ download_package_file() {
     printf "URL: %s\n" "$url"
     printf "Path: %s\n" "$selected_file"
 
-    wget -q --show-progress -O "$selected_file" "$url"
-    if [ $? -ne 0 ]; then
+    if ! curl_download_with_progress "$url" "$selected_file"; then
         echo "Error: Failed to download package $app_name from $url"
         rm -f "$selected_file"
         return 1
@@ -2024,7 +2333,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                             printf "\n"
                             printf "Package to update: %s\n" "${download_apps[$index]}"
                             if [ "$DRY_RUN" = true ]; then
-                                printf "[DRY RUN MODE] Skipping installation of %s\n" $(basename "$selected_file")
+                                printf "[DRY RUN MODE] Skipping installation of %s\n" "$(basename -- "$selected_file")"
                             else
                                 app_name="${download_apps[$index]}"
                                 # Store previous status before installation
@@ -2098,7 +2407,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                         fi
                         if [[ -f "$selected_file" || "$DRY_RUN" = true ]]; then
                             if [ "$DRY_RUN" = true ]; then
-                                printf "[DRY RUN MODE] Skipping installation of %s\n" $(basename "$selected_file")
+                                printf "[DRY RUN MODE] Skipping installation of %s\n" "$(basename -- "$selected_file")"
                             else
                                 app_name="${download_apps[$index]}"
                                 # Store previous status before installation

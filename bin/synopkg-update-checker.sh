@@ -1,7 +1,8 @@
 #!/bin/bash
 #=============================================================================
 # Script to check for Synology DSM and package updates from the Synology archive
-# Requires: dmidecode, curl, synopkg, synogetkeyvalue, wget
+# Requires: curl, synopkg, synogetkeyvalue, wget
+# Optional: dmidecode fallback for model detection
 # Author: luddinho
 # Version: 1.0
 #=============================================================================
@@ -61,6 +62,25 @@ EOF
 # Extract distributor or maintainer information from package INFO file
 # Returns: distributor (if present) or maintainer name, or "Unknown" if not found
 #-----------------------------------------------------------------------------
+get_system_model() {
+    if [ "$product" == "VirtualDSM" ]; then
+        printf "VirtualDSM"
+        return
+    fi
+
+    if [ -r /proc/sys/kernel/syno_hw_version ]; then
+        model_from_proc=$(cat /proc/sys/kernel/syno_hw_version 2>/dev/null)
+        if [ -n "$model_from_proc" ]; then
+            printf "%s" "$model_from_proc"
+            return
+        fi
+    fi
+
+    if command -v dmidecode >/dev/null 2>&1; then
+        dmidecode -s system-product-name 2>/dev/null
+    fi
+}
+
 get_package_distributor() {
     local package_name="$1"
     local info_file="/var/packages/${package_name}/INFO"
@@ -807,30 +827,41 @@ fi
 
 #-----------------------------------------------------------------------------
 # DIRECTORY SETUP
-# Create download directories for OS updates (.pat) and packages (.spk)
-# If directories exist from previous runs, clean them to ensure fresh downloads
+# Create a writable working directory for OS/package downloads and debug files.
+# Installed script locations such as /usr/local/bin may not be writable for DSM
+# admin users, so keep run artifacts in a private temp directory.
 #-----------------------------------------------------------------------------
-script_dir="$(dirname "$0")"
-
-# Prepare download directories, clean if already exists
-download_dir="$script_dir/../downloads"
-if [ ! -d "$download_dir" ]; then
-    mkdir -p "$download_dir"
-else
-    rm -rf "$download_dir"
-    mkdir -p "$download_dir"
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/synopkg-update-checker.XXXXXX" 2>/dev/null)
+if [ -z "$work_dir" ]; then
+    echo "Error: Could not create temporary working directory."
+    exit 1
 fi
-# Normalize path to resolve ".." segments (e.g. bin/../downloads -> downloads)
-download_dir="$(realpath "$download_dir")"
+cleanup_work_dir() {
+    rm -rf "$work_dir"
+}
+trap cleanup_work_dir EXIT
+
+# mktemp -d already yields an absolute, canonical path, so no realpath
+# normalization of ".." segments is needed here.
+download_dir="$work_dir/downloads"
+# Debug artifacts are meant to survive after this run (work_dir is removed on
+# EXIT), so they live outside work_dir. Create them with mktemp -d at use time
+# so the directory is 0700, owned by us, and has an unpredictable name. Never
+# use a fixed /tmp path here: a fixed, predictable name lets a non-privileged
+# user pre-create it (or plant a symlink) and read the report we write as root.
+debug_dir=""
+
 # Create subdirectory for OS
 download_dir_os="$download_dir/os"
-if [ ! -d "$download_dir_os" ]; then
-    mkdir -p "$download_dir_os"
+if ! mkdir -p "$download_dir_os"; then
+    echo "Error: Could not create OS download directory: $download_dir_os"
+    exit 1
 fi
 # Create subdirectory for packages
 download_dir_pkg="$download_dir/packages"
-if [ ! -d "$download_dir_pkg" ]; then
-    mkdir -p "$download_dir_pkg"
+if ! mkdir -p "$download_dir_pkg"; then
+    echo "Error: Could not create package download directory: $download_dir_pkg"
+    exit 1
 fi
 
 #-----------------------------------------------------------------------------
@@ -843,13 +874,13 @@ fi
 # - Version information (major.minor.micro-build-smallfix)
 #-----------------------------------------------------------------------------
 product=$(synogetkeyvalue /etc.defaults/synoinfo.conf product)
-if [ "$product" == "VirtualDSM" ]; then
-    model="VirtualDSM"
-else
-    model=$(dmidecode -s system-product-name)
-fi
 arch=$(uname -m)
 platform_name=$(synogetkeyvalue /etc.defaults/synoinfo.conf platform_name)
+model=$(get_system_model)
+if [ -z "$model" ]; then
+    model="$platform_name"
+    [ "$DEBUG" = true ] && echo "[DEBUG] Could not determine model from Synology procfs or dmidecode; using platform name: $model"
+fi
 
 os_name=$(synogetkeyvalue /etc.defaults/VERSION os_name)
 major_version=$(synogetkeyvalue /etc.defaults/VERSION majorversion)
@@ -1851,9 +1882,11 @@ if [ "$INFO_MODE" = true ]; then
 
         # Save HTML email to debug directory if debug mode is enabled
         if [ "$DEBUG" = true ] && [ -n "$HTML_OUTPUT" ]; then
-            # Create debug directory if it doesn't exist
-            debug_dir="$script_dir/../debug"
-            mkdir -p "$debug_dir"
+            debug_dir=$(mktemp -d "${TMPDIR:-/tmp}/synopkg-update-checker-debug.XXXXXX" 2>/dev/null)
+            if [ -z "$debug_dir" ]; then
+                echo "Error: Could not create debug directory." >&2
+                exit 1
+            fi
 
             # Generate filename with timestamp
             timestamp=$(date +"%Y%m%d_%H%M%S")
@@ -1915,6 +1948,12 @@ if [ ${#download_apps[@]} -eq 0 ]; then
         printf "No packages to update. Exiting.\n"
     fi
     exit 0
+fi
+
+if [ "$DRY_RUN" = false ] && [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    echo "Error: Package installation requires root privileges."
+    echo "Use --info to report updates only, --dry-run to simulate installation, or rerun with sudo/root to install packages."
+    exit 1
 fi
 
 # Print simulation mode message if dry-run is enabled
@@ -2024,7 +2063,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                             printf "\n"
                             printf "Package to update: %s\n" "${download_apps[$index]}"
                             if [ "$DRY_RUN" = true ]; then
-                                printf "[DRY RUN MODE] Skipping installation of %s\n" $(basename "$selected_file")
+                                printf "[DRY RUN MODE] Skipping installation of %s\n" "$(basename "$selected_file")"
                             else
                                 app_name="${download_apps[$index]}"
                                 # Store previous status before installation
@@ -2098,7 +2137,7 @@ while [ ${#download_apps[@]} -gt 0 ]; do
                         fi
                         if [[ -f "$selected_file" || "$DRY_RUN" = true ]]; then
                             if [ "$DRY_RUN" = true ]; then
-                                printf "[DRY RUN MODE] Skipping installation of %s\n" $(basename "$selected_file")
+                                printf "[DRY RUN MODE] Skipping installation of %s\n" "$(basename "$selected_file")"
                             else
                                 app_name="${download_apps[$index]}"
                                 # Store previous status before installation
@@ -2176,6 +2215,4 @@ done
 # Remove all downloaded files and directories after installation
 # This ensures no residual .spk files remain on the system
 #-----------------------------------------------------------------------------
-rm -rf "$download_dir"
-
 exit 0
